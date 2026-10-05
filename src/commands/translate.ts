@@ -4,7 +4,7 @@ import type { Config } from "../config.js";
 import { Glossary } from "../glossary/glossary.js";
 import { GlossaryStore } from "../glossary/store.js";
 import { Translator } from "../pipeline/translator.js";
-import { createModel } from "../providers.js";
+import { createModel, resolveModelId } from "../providers.js";
 
 export function parseIndexList(spec: string): number[] {
     return spec.split(",").flatMap((part) => {
@@ -62,7 +62,7 @@ async function run(
     }
     const force = opts.force || opts.retryFailed;
 
-    console.log(chalk.cyan(`${config.provider}/${config.model} · ${glossary.size} glossary terms · ${indexes.length} chapters`));
+    console.log(chalk.cyan(`${config.provider}/${resolveModelId(config)} · ${glossary.size} glossary terms · ${indexes.length} chapters`));
 
     const counts = { done: 0, exists: 0, skipped: 0, failed: 0 };
     const started = Date.now();
@@ -86,7 +86,7 @@ async function run(
             }
             counts.failed++;
             console.log(chalk.red(`✘ error: ${error instanceof Error ? error.message : error}`));
-            store.saveChapter({ index, status: "failed", model: config.model, attempts: 0, ratio: null, error: String(error) });
+            store.saveChapter({ index, status: "failed", model: resolveModelId(config), attempts: 0, ratio: null, error: String(error) });
         }
     }
 

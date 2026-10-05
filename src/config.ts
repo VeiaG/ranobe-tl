@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { PROVIDERS } from "./providers.js";
 
 export const CONFIG_FILE = "novel.json";
 
@@ -19,13 +20,19 @@ const ConfigSchema = z.object({
     sourceLanguage: z.string().default("English"),
     targetLanguage: z.string().default("Ukrainian"),
 
-    provider: z.enum(["openai"]).default("openai"),
-    model: z.string().default("gpt-6-luna"),
-    /** Env variable holding the API key. */
-    apiKeyEnv: z.string().default("OPENAI_API_KEY"),
-    /** Optional OpenAI-compatible endpoint (OpenRouter, proxies, ...). */
+    provider: z.enum(PROVIDERS).default("openai"),
+    /** Defaults per provider (see PROVIDER_DEFAULTS); required for google. */
+    model: z.string().optional(),
+    /** Env variable holding the API key; defaults per provider. */
+    apiKeyEnv: z.string().optional(),
+    /** Custom endpoint for the provider (OpenAI-compatible proxies, OpenRouter, ...). */
     baseURL: z.string().optional(),
+    /** Not accepted by current Claude models (400); leave unset there. */
     temperature: z.number().optional(),
+    /** Reasoning depth: OpenAI reasoningEffort / Anthropic effort. Ignored by google. */
+    effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+    /** Output token limit per request; a full chapter needs ~10–15k. */
+    maxOutputTokens: z.number().int().min(1000).default(32000),
 
     chunkSize: z.number().int().min(1000).default(15000),
     /** Attempts per chunk when the output fails validation or the request errors. */
@@ -104,6 +111,7 @@ export function chapterFile(config: Config, kind: "input" | "output", index: num
 
 export const CONFIG_TEMPLATE = {
     range: { start: 1, end: 100 },
+    provider: "openai",
     model: "gpt-6-luna",
     sourceLanguage: "English",
     targetLanguage: "Ukrainian",

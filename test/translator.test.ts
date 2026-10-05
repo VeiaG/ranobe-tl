@@ -9,6 +9,8 @@ import { Glossary } from "../src/glossary/glossary.js";
 import { GlossaryStore } from "../src/glossary/store.js";
 import { Translator } from "../src/pipeline/translator.js";
 
+const setup = (model: MockLanguageModelV3) => ({ model, providerOptions: {}, systemProviderOptions: {} });
+
 function reply(text: string) {
     return {
         content: [{ type: "text" as const, text }],
@@ -43,7 +45,7 @@ test("translator: retries with feedback, applies terms, writes output", async ()
     ];
     const model = new MockLanguageModelV3({ doGenerate: async () => responses.shift()! });
 
-    const translator = new Translator(config, model, glossary, store);
+    const translator = new Translator(config, setup(model), glossary, store);
     const res = await translator.translateChapter(1);
 
     assert.equal(res.status, "done");
@@ -78,7 +80,7 @@ test("translator: abort stops the request without recording a failure", async ()
             new Promise((_, reject) => abortSignal?.addEventListener("abort", () => reject(abortSignal.reason))),
     });
 
-    const pending = new Translator(config, model, new Glossary(store), store, abort.signal).translateChapter(3);
+    const pending = new Translator(config, setup(model), new Glossary(store), store, abort.signal).translateChapter(3);
     setTimeout(() => abort.abort(), 10);
     await assert.rejects(pending);
     assert.equal(model.doGenerateCalls.length, 1, "no retry after abort");
@@ -94,7 +96,7 @@ test("translator: chapter fails after maxAttempts and is recorded", async () => 
     const store = new GlossaryStore(":memory:");
     const model = new MockLanguageModelV3({ doGenerate: async () => reply("I cannot translate this.") });
 
-    const res = await new Translator(config, model, new Glossary(store), store).translateChapter(2);
+    const res = await new Translator(config, setup(model), new Glossary(store), store).translateChapter(2);
     assert.equal(res.status, "failed");
     assert.match(store.listChapters("failed")[0].error, /missing <translation>/);
 });

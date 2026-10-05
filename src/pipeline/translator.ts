@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import chalk from "chalk";
-import { generateText, type LanguageModel } from "ai";
+import { generateText } from "ai";
 import { chapterFile, type Config } from "../config.js";
 import type { Glossary, ProposalOutcome } from "../glossary/glossary.js";
 import type { GlossaryStore } from "../glossary/store.js";
@@ -9,6 +9,7 @@ import { checkSource, chunkText, cleanSource } from "./preprocess.js";
 import { parseOutput } from "./parse.js";
 import { systemPrompt, userPrompt } from "./prompt.js";
 import { validateTranslation } from "./validate.js";
+import { resolveModelId, type ModelSetup } from "../providers.js";
 
 export interface Usage {
     input: number;
@@ -28,7 +29,7 @@ export class Translator {
 
     constructor(
         private config: Config,
-        private model: LanguageModel,
+        private setup: ModelSetup,
         private glossary: Glossary,
         private store: GlossaryStore,
         private signal?: AbortSignal
@@ -96,9 +97,13 @@ export class Translator {
             let output: string;
             try {
                 const res = await generateText({
-                    model: this.model,
-                    system: this.system,
-                    prompt,
+                    model: this.setup.model,
+                    messages: [
+                        { role: "system", content: this.system, providerOptions: this.setup.systemProviderOptions },
+                        { role: "user", content: prompt },
+                    ],
+                    providerOptions: this.setup.providerOptions,
+                    maxOutputTokens: this.config.maxOutputTokens,
                     temperature: this.config.temperature,
                     maxRetries: 5,
                     abortSignal: this.signal,
@@ -141,7 +146,7 @@ export class Translator {
     }
 
     private record(index: number, status: "done" | "failed" | "skipped", attempts: number, ratio: number | null, error: string) {
-        this.store.saveChapter({ index, status, model: this.config.model, attempts, ratio, error });
+        this.store.saveChapter({ index, status, model: resolveModelId(this.config), attempts, ratio, error });
     }
 
     private addUsage(u: { inputTokens?: number; outputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number } }) {
