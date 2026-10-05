@@ -14,15 +14,33 @@ export function cleanSource(text: string, config: Config): string {
 }
 
 /** Sources often repeat the chapter title on the first lines; keep only the first one. */
+/** Title comparison key: no "Chapter 12:" / "Prologue Part 1" prefix, case, punctuation or apostrophe style. */
+export function titleKey(line: string): string {
+    return line
+        .toLowerCase()
+        .replace(/^\s*(chapter|ch\.?|prologue|epilogue|side story|extra)\s*(part\s*)?[\d.]*\s*(part\s*\d+)?\s*[:\-–—.]?\s*/u, "")
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .trim();
+}
+
+/**
+ * Sources often repeat the chapter title on the next lines, either verbatim or
+ * without the "Chapter N" prefix ("Chapter 1 I Live Alone (1)" → "I Live Alone (1)").
+ * Keep only the first one.
+ */
 export function dedupeTitle(text: string): string {
     const lines = text.split("\n");
     const firstIdx = lines.findIndex((l) => l.trim());
     if (firstIdx === -1) return text;
-    const key = (l: string) => l.trim().toLowerCase().replace(/[–—-]/g, "-").replace(/\s+/g, " ");
-    const title = key(lines[firstIdx]);
+    const title = titleKey(lines[firstIdx]);
+    const isRepeat = (l: string) => {
+        const k = titleKey(l);
+        if (!k || !title) return false;
+        return k === title || (title.endsWith(` ${k}`) && k.length >= title.length / 2);
+    };
     const out = lines.slice(0, firstIdx + 1);
     let i = firstIdx + 1;
-    while (i < lines.length && (!lines[i].trim() || key(lines[i]) === title)) {
+    while (i < lines.length && (!lines[i].trim() || isRepeat(lines[i]))) {
         if (!lines[i].trim()) out.push(lines[i]);
         i++;
     }

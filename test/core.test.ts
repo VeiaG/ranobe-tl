@@ -117,6 +117,11 @@ test("lncrawl html → text, <think> stripped", () => {
 
 test("preprocess: duplicated title and chunking", () => {
     assert.equal(dedupeTitle("Chapter 5 – Wind\n\nChapter 5 - Wind\n\nText"), "Chapter 5 – Wind\n\n\nText");
+    // repeated without the "Chapter N" prefix, different apostrophe/case
+    assert.equal(dedupeTitle("Chapter 4 You Can’T See Me? (1)\n\nYou Can't see me? (1)\n\nText").replace(/\n+/g, "|"), "Chapter 4 You Can’T See Me? (1)|Text");
+    // a subtitle or a short line that only shares a word stays
+    assert.match(dedupeTitle("Prologue Part 1\n\nEarth Alone\n\nText"), /Earth Alone/);
+    assert.match(dedupeTitle("Chapter 9 The Sword of Heaven\n\nHeaven!\n\nText"), /Heaven!/);
     const text = Array.from({ length: 50 }, (_, i) => `Paragraph ${i} `.repeat(20)).join("\n\n");
     const chunks = chunkText(text, 2000);
     assert.ok(chunks.every((c) => c.length <= 2000));
