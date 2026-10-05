@@ -1,6 +1,6 @@
 {
   "name": "ranobe-tl",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "LLM pipeline for translating web novels chapter by chapter with a growing glossary",
   "type": "module",
   "license": "MIT",
@@ -32,6 +32,7 @@
     "@ai-sdk/anthropic": "^3.0.127",
     "@ai-sdk/google": "^3.0.130",
     "@ai-sdk/openai": "^3.0.14",
+    "@clack/prompts": "^1.8.1",
     "ai": "^6.0.45",
     "chalk": "^5.3.0",
     "dotenv": "^17.2.1",

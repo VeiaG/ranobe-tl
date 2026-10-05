@@ -4,6 +4,7 @@ import chalk from "chalk";
 import type { Config } from "../config.js";
 import { importLegacy } from "../glossary/importLegacy.js";
 import { normalizeTerm } from "../glossary/normalize.js";
+import { reviewCommand } from "./review.js";
 import { Gender, GlossaryStore, TERM_TYPES, Term, TermType } from "../glossary/store.js";
 
 export interface GlossaryOpts {
@@ -76,6 +77,9 @@ export async function glossaryCommand(config: Config, args: string[], opts: Glos
                 }
                 break;
             }
+            case "review":
+                await reviewCommand(store);
+                break;
             case "accept":
             case "reject": {
                 for (const id of rest.map(Number)) {
@@ -130,7 +134,8 @@ export const GLOSSARY_HELP = `glossary commands:
   export [file.json]           dump the glossary as JSON
   list [query] [--type T]      list / search terms
   show <term>                  term details and its change history
-  changes [--all]              pending changes (translation / gender) to review
+  review                       go through pending changes interactively
+  changes [--all]              list pending changes (translation / gender)
   accept <id...> | reject <id...>
   set <term> [--target X] [--type T] [--gender m|f|unknown --from N] [--note X]
   lock <term> | unlock <term>  locked terms are never changed by the model

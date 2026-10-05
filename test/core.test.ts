@@ -21,6 +21,10 @@ test("matcher: longest match, possessive, capitalized single words", () => {
     const found = m.find("Mu Yuhuang's sword was white. The spirit veins glowed; his battle spirit rose.");
     assert.deepEqual(found.sort(), ["Battle Spirit", "Mu Yuhuang", "spirit vein"]);
     assert.deepEqual(m.find("Old White and Mu came."), ["White", "Mu"]);
+
+    // non-name terms (materials, items) match whatever the case in the text
+    m.add("Harkanium", "Harkanium", false);
+    assert.deepEqual(m.find("a bar of harkanium"), ["Harkanium"]);
 });
 
 test("legacy import: gender and notes leave the target", () => {
@@ -66,6 +70,13 @@ test("glossary rules: new, variant, target change, gender changes", () => {
     g.propose({ source: "Elder Bai", target: "Старійшина Бай", type: "person" }, 5, src);
     assert.equal(g.propose({ source: "Elder Bai", target: "Старійшина Бай", type: "person", gender: "f" }, 30, src)[0].kind, "gender-resolved");
     assert.equal(genderAt(store.findTerm("Elder Bai")!, 5), "f");
+
+    // same translation with different letter case is not a change
+    assert.equal(g.propose({ source: "Elder Bai", target: "старійшина бай", type: "person" }, 31, src)[0].kind, "unchanged");
+
+    // a material saved capitalized is still found in lowercase text
+    g.propose({ source: "Harkanium", target: "Гарканій", type: "item" }, 18, src);
+    assert.ok(g.relevant("forged from harkanium").some((t) => t.source === "Harkanium"));
 
     // locked terms are never changed
     store.updateTerm(store.findTerm("Sky Tower")!.id, { locked: true });

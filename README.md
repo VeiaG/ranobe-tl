@@ -78,7 +78,8 @@ glossary import [meta.json]          import an old flat {"term": "перекла
 glossary export [file.json]          dump the glossary as JSON
 glossary list [query] [--type T]     list / search terms
 glossary show <term>                 term details and its change history
-glossary changes [--all]             queued changes (translation / gender) to review
+glossary review                      go through queued changes interactively
+glossary changes [--all]             list queued changes (translation / gender)
 glossary accept <id...>              apply queued changes
 glossary reject <id...>
 glossary set <term> [--target X] [--type T] [--gender m|f|unknown --from N] [--note X]

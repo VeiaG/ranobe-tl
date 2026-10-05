@@ -21,6 +21,8 @@ export type ProposalOutcome =
     | { kind: "rejected"; term: Term; field: "target" | "gender"; value: string; why: string }
     | { kind: "similar"; proposed: ProposedTerm; similar: Term[] };
 
+const NAME_TYPES = new Set<TermType>(["person", "place", "organization"]);
+
 /** Glossary with an in-memory matcher kept in sync with the store. */
 export class Glossary {
     private terms = new Map<number, Term>();
@@ -92,7 +94,8 @@ export class Glossary {
 
         const outcomes: ProposalOutcome[] = [];
 
-        if (p.target.trim() && p.target.trim() !== existing.target) {
+        // A difference only in letter case is not a different translation.
+        if (p.target.trim() && p.target.trim().toLowerCase() !== existing.target.toLowerCase()) {
             outcomes.push(this.proposeTarget(existing, p, chapter));
         }
         if (existing.type === "person" && p.gender && p.gender !== "unknown") {
@@ -162,7 +165,7 @@ export class Glossary {
 
     private index(term: Term): void {
         this.terms.set(term.id, term);
-        this.matcher.add(term.source, term.id);
+        this.matcher.add(term.source, term.id, NAME_TYPES.has(term.type));
     }
 }
 

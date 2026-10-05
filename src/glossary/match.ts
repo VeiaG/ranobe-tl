@@ -4,7 +4,7 @@ const WORD_RE = /[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu;
 
 interface Entry<T> {
     words: string[];
-    /** Single capitalized words ("White", "Clear") only match capitalized occurrences. */
+    /** Single capitalized names ("White", "Clear") only match capitalized occurrences. */
     caseSensitive: boolean;
     value: T;
 }
@@ -32,12 +32,17 @@ function stripTail(word: string): string[] {
 export class TermMatcher<T> {
     private byFirstWord = new Map<string, Entry<T>[]>();
 
-    add(source: string, value: T): void {
+    /**
+     * `isName`: the term is a proper name (person, place, organization). A single capitalized
+     * name then only matches capitalized occurrences, so "White" the character is not found in
+     * "a white wall". Other terms (materials, items, skills) match regardless of case.
+     */
+    add(source: string, value: T, isName = true): void {
         const tokens = tokenize(source);
         if (!tokens.length) return;
         const entry: Entry<T> = {
             words: tokens.map((t) => t.word),
-            caseSensitive: tokens.length === 1 && /^\p{Lu}/u.test(tokens[0].raw),
+            caseSensitive: isName && tokens.length === 1 && /^\p{Lu}/u.test(tokens[0].raw),
             value,
         };
         const list = this.byFirstWord.get(entry.words[0]) ?? [];
