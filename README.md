@@ -36,7 +36,7 @@ Output: `translation/00001.json` → `{ "content": "...", "title": "..." }`.
 | key | default | |
 |---|---|---|
 | `range` | — | `{ "start": 1, "end": 2276 }` |
-| `model` | `gpt-4.1` | |
+| `model` | `gpt-6-luna` | |
 | `baseURL` | | OpenAI-compatible endpoint (OpenRouter etc.) |
 | `apiKeyEnv` | `OPENAI_API_KEY` | |
 | `sourceLanguage` / `targetLanguage` | English / Ukrainian | |

@@ -30,7 +30,8 @@ export class Translator {
         private config: Config,
         private model: LanguageModel,
         private glossary: Glossary,
-        private store: GlossaryStore
+        private store: GlossaryStore,
+        private signal?: AbortSignal
     ) {
         this.system = systemPrompt(config);
     }
@@ -100,12 +101,15 @@ export class Translator {
                     prompt,
                     temperature: this.config.temperature,
                     maxRetries: 5,
+                    abortSignal: this.signal,
                 });
                 this.addUsage(res.usage);
                 output = res.text;
                 if (res.finishReason === "length") lastReason = "output hit the token limit";
                 if (res.finishReason === "content-filter") lastReason = "blocked by the content filter";
             } catch (error) {
+                // A user abort must stop the chapter, not count as a failed attempt.
+                if (this.signal?.aborted) throw error;
                 lastReason = `request failed: ${error instanceof Error ? error.message : String(error)}`;
                 console.log(chalk.yellow(`  ⚠ ${label}: ${lastReason}`));
                 await this.debug(chapter, chunk, attempt, prompt, String(error));

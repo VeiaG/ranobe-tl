@@ -20,8 +20,37 @@ export async function translateCommand(
     opts: { from?: number; to?: number; only?: string; force?: boolean; retryFailed?: boolean }
 ): Promise<void> {
     const store = new GlossaryStore(path.resolve(config.root, config.glossaryFile));
+    const abort = new AbortController();
+    let interrupted = false;
+    const onSigint = () => {
+        if (interrupted) {
+            console.log(chalk.red("\nAborting the current request..."));
+            abort.abort();
+            return;
+        }
+        interrupted = true;
+        console.log(chalk.yellow("\nStopping after the current chapter (Ctrl+C again to abort)..."));
+    };
+    process.on("SIGINT", onSigint);
+
+    try {
+        await run(config, opts, store, abort.signal, () => interrupted);
+    } finally {
+        process.off("SIGINT", onSigint);
+        store.close();
+    }
+    if (abort.signal.aborted) process.exitCode = 130;
+}
+
+async function run(
+    config: Config,
+    opts: { from?: number; to?: number; only?: string; force?: boolean; retryFailed?: boolean },
+    store: GlossaryStore,
+    signal: AbortSignal,
+    isInterrupted: () => boolean
+): Promise<void> {
     const glossary = new Glossary(store, config.fixedTerms);
-    const translator = new Translator(config, createModel(config), glossary, store);
+    const translator = new Translator(config, createModel(config), glossary, store, signal);
 
     let indexes: number[];
     if (opts.only) indexes = parseIndexList(opts.only);
@@ -35,18 +64,11 @@ export async function translateCommand(
 
     console.log(chalk.cyan(`${config.provider}/${config.model} · ${glossary.size} glossary terms · ${indexes.length} chapters`));
 
-    let interrupted = false;
-    process.on("SIGINT", () => {
-        if (interrupted) process.exit(130);
-        interrupted = true;
-        console.log(chalk.yellow("\nStopping after the current chapter (Ctrl+C again to abort)..."));
-    });
-
     const counts = { done: 0, exists: 0, skipped: 0, failed: 0 };
     const started = Date.now();
 
     for (const index of indexes) {
-        if (interrupted) break;
+        if (isInterrupted()) break;
         const t0 = Date.now();
         console.log(chalk.bold(`\n▶ Chapter ${index}`));
         try {
@@ -58,6 +80,10 @@ export async function translateCommand(
             else if (res.status === "skipped") console.log(chalk.yellow(`⏭ skipped: ${res.reason}`));
             else console.log(chalk.red(`✘ failed: ${res.reason}`));
         } catch (error) {
+            if (signal.aborted) {
+                console.log(chalk.red(`✘ chapter ${index} aborted, nothing saved for it`));
+                break;
+            }
             counts.failed++;
             console.log(chalk.red(`✘ error: ${error instanceof Error ? error.message : error}`));
             store.saveChapter({ index, status: "failed", model: config.model, attempts: 0, ratio: null, error: String(error) });
@@ -70,5 +96,4 @@ export async function translateCommand(
     console.log(chalk.dim(`tokens: ${u.input} in (${u.cachedInput} cached), ${u.output} out`));
     const pending = store.listChanges("pending").length;
     if (pending) console.log(chalk.yellow(`${pending} glossary changes wait for review: ranobe-tl glossary changes`));
-    store.close();
 }

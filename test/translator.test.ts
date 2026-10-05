@@ -65,6 +65,26 @@ test("translator: retries with feedback, applies terms, writes output", async ()
     assert.equal((await translator.translateChapter(1)).status, "exists");
 });
 
+test("translator: abort stops the request without recording a failure", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ranobe-tl-"));
+    mkdirSync(path.join(root, "chapters"));
+    writeFileSync(path.join(root, "chapters", "00003.txt"), "Title\n\n" + "Some text here. ".repeat(100));
+    writeFileSync(path.join(root, "novel.json"), JSON.stringify({ range: { start: 3, end: 3 } }));
+    const config = await loadConfig(root);
+    const store = new GlossaryStore(":memory:");
+    const abort = new AbortController();
+    const model = new MockLanguageModelV3({
+        doGenerate: ({ abortSignal }) =>
+            new Promise((_, reject) => abortSignal?.addEventListener("abort", () => reject(abortSignal.reason))),
+    });
+
+    const pending = new Translator(config, model, new Glossary(store), store, abort.signal).translateChapter(3);
+    setTimeout(() => abort.abort(), 10);
+    await assert.rejects(pending);
+    assert.equal(model.doGenerateCalls.length, 1, "no retry after abort");
+    assert.deepEqual(store.listChapters(), []);
+});
+
 test("translator: chapter fails after maxAttempts and is recorded", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "ranobe-tl-"));
     mkdirSync(path.join(root, "chapters"));

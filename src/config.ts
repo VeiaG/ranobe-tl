@@ -20,7 +20,7 @@ const ConfigSchema = z.object({
     targetLanguage: z.string().default("Ukrainian"),
 
     provider: z.enum(["openai"]).default("openai"),
-    model: z.string().default("gpt-4.1"),
+    model: z.string().default("gpt-6-luna"),
     /** Env variable holding the API key. */
     apiKeyEnv: z.string().default("OPENAI_API_KEY"),
     /** Optional OpenAI-compatible endpoint (OpenRouter, proxies, ...). */
@@ -104,7 +104,7 @@ export function chapterFile(config: Config, kind: "input" | "output", index: num
 
 export const CONFIG_TEMPLATE = {
     range: { start: 1, end: 100 },
-    model: "gpt-4.1",
+    model: "gpt-6-luna",
     sourceLanguage: "English",
     targetLanguage: "Ukrainian",
     stringsToRemove: [],
