@@ -18,7 +18,8 @@ Translates web novels chapter by chapter with an LLM (OpenAI, Anthropic or Googl
 Requires Node.js 22.15 or newer.
 
 ```sh
-npm install -g ranobe-tl
+pnpm add -g ranobe-tl
+# or run without installing: pnpm dlx ranobe-tl <command>
 ```
 
 ## Quick start
