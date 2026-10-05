@@ -151,3 +151,7 @@ pnpm test
 pnpm dev translate --dir ../my-novel   # run from source
 pnpm build
 ```
+
+## License
+
+MIT

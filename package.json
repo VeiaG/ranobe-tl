@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "LLM pipeline for translating web novels chapter by chapter with a growing glossary",
   "type": "module",
+  "license": "MIT",
   "bin": {
     "ranobe-tl": "dist/cli.js"
   },
