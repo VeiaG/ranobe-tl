@@ -30,7 +30,10 @@ export function parseOutput(raw: string): ParsedOutput {
         .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
         .replace(/^\s*```[a-z]*\n?|\n?```\s*$/g, "");
 
-    const title = block(text, "title")?.trim();
+    // The title must be one line; models sometimes pull subtitles or junk lines into it.
+    const titleLines = (block(text, "title") ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+    const title = titleLines[0];
+    const titleSpill = titleLines.slice(1).join("\n\n");
     let translation = block(text, "translation");
     if (translation === undefined) {
         problems.push("missing <translation> block");
@@ -53,5 +56,11 @@ export function parseOutput(raw: string): ParsedOutput {
         }
     }
 
-    return { title: title || undefined, translation: translation.trim(), terms, problems };
+    const body = translation.trim();
+    return {
+        title: title || undefined,
+        translation: titleSpill && body ? `${titleSpill}\n\n${body}` : body,
+        terms,
+        problems,
+    };
 }

@@ -85,6 +85,10 @@ test("parse: blocks, truncation, junk terms", () => {
     assert.deepEqual(ok.terms.map((t) => [t.source, t.type]), [["A", "other"]]);
     assert.deepEqual(ok.problems, []);
 
+    const spilled = parseOutput("<title>Пролог. Частина 1\n\nСам на Землі</title>\n<translation>\nТекст.\n</translation>");
+    assert.equal(spilled.title, "Пролог. Частина 1");
+    assert.equal(spilled.translation, "Сам на Землі\n\nТекст.");
+
     const cut = parseOutput("<translation>\nПочаток тексту");
     assert.match(cut.problems.join(), /not closed/);
 });

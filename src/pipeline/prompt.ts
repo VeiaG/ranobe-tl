@@ -23,7 +23,7 @@ Use these translations consistently, declined/conjugated as ${to} grammar requir
 ## Output format
 Respond with exactly these blocks and nothing outside them:
 
-<title>translated chapter title</title>
+<title>translated chapter title (one line: the first line of the source)</title>
 <translation>
 the full translated text, without the title
 </translation>
