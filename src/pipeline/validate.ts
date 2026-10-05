@@ -47,6 +47,9 @@ function sameGram(words: string[], a: number, b: number, n: number): boolean {
     return true;
 }
 
+/** Below this many Latin letters a chunk is never flagged: a few names or a short note are fine. */
+const MIN_LATIN_LETTERS = 40;
+
 export function latinPercent(text: string): number {
     const latin = text.match(/[a-zA-Z]/g)?.length ?? 0;
     const letters = text.match(/\p{L}/gu)?.length ?? 0;
@@ -65,7 +68,8 @@ export function validateTranslation(source: string, translation: string, config:
     } else if (ratio > v.maxRatio) {
         problems.push(`translation is too long (${(ratio * 100).toFixed(0)}% of source length, expected ≤ ${v.maxRatio * 100}%): do not add commentary or repeat text`);
     }
-    if (latin > v.maxLatinPercent) {
+    const latinLetters = translation.match(/[a-zA-Z]/g)?.length ?? 0;
+    if (latin > v.maxLatinPercent && latinLetters >= MIN_LATIN_LETTERS) {
         problems.push(`too much untranslated ${config.sourceLanguage} text (${latin.toFixed(1)}% Latin letters)`);
     }
     const repeat = longestRepeat(translation);

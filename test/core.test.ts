@@ -109,6 +109,8 @@ test("validate: ratio, latin, leaks", () => {
     assert.ok(validateTranslation(source, "б".repeat(930), config).ok);
     assert.match(validateTranslation(source, "б".repeat(500), config).problems.join(), /too short/);
     assert.match(validateTranslation(source, "б".repeat(900) + "x".repeat(60), config).problems.join(), /Latin/);
+    // a short chunk with a couple of names in Latin is fine
+    assert.ok(validateTranslation("a".repeat(140), "б".repeat(110) + " Oregairu Munpia", config).ok);
     assert.match(validateTranslation(source, "б".repeat(900) + " [person, m]", config).problems.join(), /annotation/);
 });
 
@@ -137,4 +139,10 @@ test("preprocess: duplicated title and chunking", () => {
     const chunks = chunkText(text, 2000);
     assert.ok(chunks.every((c) => c.length <= 2000));
     assert.equal(chunks.join("\n\n").replace(/\s+/g, ""), text.replace(/\s+/g, ""));
+
+    // just over the limit → two balanced halves, not a full chunk plus a tiny tail
+    const over = Array.from({ length: 21 }, (_, i) => `Paragraph ${i} `.repeat(8).trim()).join("\n\n");
+    const halves = chunkText(over, over.length - 50);
+    assert.equal(halves.length, 2);
+    assert.ok(Math.min(...halves.map((c) => c.length)) > over.length / 3);
 });

@@ -55,21 +55,34 @@ export function checkSource(text: string, config: Config): SourceCheck {
     return { ok: true };
 }
 
-/** Splits on paragraph boundaries, falling back to lines and sentences. */
+/**
+ * Splits into chunks of at most `size` characters, on paragraph boundaries where possible
+ * (then lines, then sentences). Chunks are balanced: a text just over the limit becomes two
+ * halves rather than a full chunk plus a tiny tail.
+ */
 export function chunkText(text: string, size: number): string[] {
     const chunks: string[] = [];
     let rest = text;
     while (rest.length > size) {
-        const window = rest.slice(0, size);
-        let cut = window.lastIndexOf("\n\n");
-        if (cut < size * 0.3) cut = window.lastIndexOf("\n");
-        if (cut < size * 0.3) {
-            const sentence = window.lastIndexOf(". ");
-            cut = sentence > 0 ? sentence + 1 : size;
-        }
+        const parts = Math.ceil(rest.length / size);
+        const target = Math.ceil(rest.length / parts);
+        const window = rest.slice(0, Math.min(size, Math.round(target * 1.2)));
+        const cut = findCut(window, target);
         chunks.push(rest.slice(0, cut).trim());
         rest = rest.slice(cut).trim();
     }
     if (rest) chunks.push(rest);
     return chunks;
+}
+
+/** The boundary closest to `target`: paragraph, else line, else sentence, else a hard cut. */
+function findCut(window: string, target: number): number {
+    for (const sep of ["\n\n", "\n", ". "]) {
+        let best = -1;
+        for (let i = window.indexOf(sep, Math.floor(target / 2)); i !== -1; i = window.indexOf(sep, i + 1)) {
+            if (best === -1 || Math.abs(i - target) < Math.abs(best - target)) best = i;
+        }
+        if (best !== -1) return sep === ". " ? best + 1 : best;
+    }
+    return window.length;
 }
