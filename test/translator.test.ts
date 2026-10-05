@@ -67,6 +67,25 @@ test("translator: retries with feedback, applies terms, writes output", async ()
     assert.equal((await translator.translateChapter(1)).status, "exists");
 });
 
+test("translator: a stable Latin share is accepted on the second attempt", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ranobe-tl-"));
+    mkdirSync(path.join(root, "chapters"));
+    writeFileSync(path.join(root, "chapters", "00004.txt"), "Title\n\n" + "Some text here. ".repeat(100));
+    writeFileSync(path.join(root, "novel.json"), JSON.stringify({ range: { start: 4, end: 4 } }));
+    const config = await loadConfig(root);
+    const store = new GlossaryStore(":memory:");
+    // ~3.6% Latin: a handful of names the model rightly keeps in Latin
+    const prose = Array.from({ length: 38 }, (_, i) => `Речення номер ${i} розповідає про героя.`).join(" ");
+    const body = `${prose} Oregairu Munpia Harkanium Fecinom Totsuka Saika EER`;
+    const model = new MockLanguageModelV3({
+        doGenerate: async () => reply(`<title>Розділ</title>\n<translation>\n${body}\n</translation>\n<terms>[]</terms>`),
+    });
+
+    const res = await new Translator(config, setup(model), new Glossary(store), store).translateChapter(4);
+    assert.equal(res.status, "done");
+    assert.equal(model.doGenerateCalls.length, 2);
+});
+
 test("translator: abort stops the request without recording a failure", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "ranobe-tl-"));
     mkdirSync(path.join(root, "chapters"));

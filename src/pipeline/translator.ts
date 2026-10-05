@@ -88,6 +88,8 @@ export class Translator {
     ): Promise<{ ok: true; translation: string; title?: string; attempts: number } | { ok: false; reason: string; attempts: number }> {
         let feedback: string | undefined;
         let lastReason = "";
+        // Latin share of the previous attempt when that was its only problem.
+        let previousLatin: number | undefined;
 
         for (let attempt = 1; attempt <= this.config.maxAttempts; attempt++) {
             const terms = this.glossary.relevant(text);
@@ -124,9 +126,16 @@ export class Translator {
             const validation = validateTranslation(text, parsed.translation, this.config, parsed.problems);
             if (!validation.ok) {
                 lastReason = validation.problems.join("; ");
-                feedback = lastReason;
                 console.log(chalk.yellow(`  ⚠ ${label}: ${lastReason}`));
-                continue;
+                // The same amount of Latin twice in a row means the text really has it
+                // (names, game terms, English inserts): another retry will not change it.
+                if (validation.latinOnly && previousLatin !== undefined && latinStable(previousLatin, validation.latinPercent)) {
+                    console.log(chalk.yellow(`  ⚠ ${label}: accepted, the Latin share is stable across attempts`));
+                } else {
+                    previousLatin = validation.latinOnly ? validation.latinPercent : undefined;
+                    feedback = lastReason;
+                    continue;
+                }
             }
 
             this.applyTerms(parsed.terms, chapter, text);
@@ -161,6 +170,11 @@ export class Translator {
         await fs.writeFile(`${base}_prompt.txt`, `${this.system}\n\n===== USER =====\n\n${prompt}`, "utf-8");
         await fs.writeFile(`${base}_output.txt`, output, "utf-8");
     }
+}
+
+/** Two Latin shares are "about the same": within half a percentage point or 15% of each other. */
+function latinStable(previous: number, current: number): boolean {
+    return Math.abs(previous - current) <= Math.max(0.5, previous * 0.15);
 }
 
 async function hasTranslation(file: string): Promise<boolean> {

@@ -5,6 +5,8 @@ export interface Validation {
     problems: string[];
     ratio: number;
     latinPercent: number;
+    /** The only problem is the share of Latin letters (often legit: names, game terms). */
+    latinOnly: boolean;
 }
 
 const LEAK_PATTERNS: [RegExp, string][] = [
@@ -79,5 +81,6 @@ export function validateTranslation(source: string, translation: string, config:
     for (const [re, msg] of LEAK_PATTERNS) {
         if (re.test(translation)) problems.push(msg);
     }
-    return { ok: problems.length === 0, problems, ratio, latinPercent: latin };
+    const latinOnly = problems.length === 1 && problems[0].startsWith("too much untranslated");
+    return { ok: problems.length === 0, problems, ratio, latinPercent: latin, latinOnly };
 }
