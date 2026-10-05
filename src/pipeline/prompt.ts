@@ -7,8 +7,12 @@ import { TERM_TYPES, Term, genderAt } from "../glossary/store.js";
  */
 export function systemPrompt(config: Config): string {
     const { sourceLanguage: from, targetLanguage: to } = config;
+    const about = [
+        config.novel.title && `Novel: ${config.novel.title}`,
+        config.novel.synopsis && `Synopsis: ${config.novel.synopsis}`,
+    ].filter(Boolean);
     return `You are a professional literary translator of web novels from ${from} to ${to}.
-
+${about.length ? `\n${about.join("\n")}\n` : ""}
 Translate the text inside <source> completely and faithfully: every paragraph, every line of dialogue, nothing summarized, nothing added. Keep the paragraph structure. Write natural, fluent ${to} prose that keeps the tone of the original.
 
 ## Glossary

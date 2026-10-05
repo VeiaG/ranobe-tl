@@ -16,8 +16,10 @@ Translates web novels chapter by chapter with an LLM, keeping names and terms co
 ## Usage
 
 ```sh
-cd my-novel            # chapters/00001.txt ...
-ranobe-tl init         # creates novel.json
+mkdir my-novel && cd my-novel
+ranobe-tl lncrawl                     # novels downloaded with the lightnovel-crawler GUI
+ranobe-tl lncrawl "returnee"          # unpack one into chapters/00001.txt, creates novel.json
+# or put chapters/00001.txt ... there yourself and run: ranobe-tl init
 echo OPENAI_API_KEY=sk-... > .env
 ranobe-tl glossary import meta.json   # optional: old flat {"term": "переклад (чоловік)"} memory
 ranobe-tl translate
@@ -44,6 +46,7 @@ Output: `translation/00001.json` → `{ "content": "...", "title": "..." }`.
 | `stringsToRemove` | `[]` | exact strings removed from the source |
 | `patternsToRemove` | translator/editor credits | regexes removed from the source |
 | `fixedTerms` | `{}` | always sent, never changed |
+| `novel` | | `{ "title", "synopsis" }`, background for the model (filled by `lncrawl`) |
 | `instructions` | | appended to the system prompt |
 | `validation` | `minRatio 0.8, maxRatio 1.15, maxLatinPercent 3, minSourceChars 1000` | |
 | `debug.savePrompts` | false | dumps prompts and raw outputs to `debug/` |

@@ -6,6 +6,7 @@ import chalk from "chalk";
 import dotenv from "dotenv";
 import { CONFIG_FILE, CONFIG_TEMPLATE, loadConfig } from "./config.js";
 import { checkCommand, compactRanges } from "./commands/check.js";
+import { lncrawlCommand } from "./commands/lncrawl.js";
 import { GLOSSARY_HELP, glossaryCommand } from "./commands/glossary.js";
 import { translateCommand } from "./commands/translate.js";
 import { GlossaryStore } from "./glossary/store.js";
@@ -15,6 +16,9 @@ const HELP = `ranobe-tl <command> [options]
 Run inside a novel folder (with ${CONFIG_FILE}) or pass --dir.
 
   init                         create ${CONFIG_FILE}
+  lncrawl [title|id] [--force] [--lncrawl-dir D]
+                               list novels downloaded by lightnovel-crawler (GUI),
+                               or unpack one into ./chapters (creates ${CONFIG_FILE})
   translate [--from N] [--to N] [--only 1,5,10-12] [--force] [--retry-failed]
   check [--delete]             audit existing translations
   status                       chapters translated / failed / skipped
@@ -33,6 +37,7 @@ async function main() {
             force: { type: "boolean" },
             "retry-failed": { type: "boolean" },
             delete: { type: "boolean" },
+            "lncrawl-dir": { type: "string" },
             all: { type: "boolean" },
             target: { type: "string" },
             gender: { type: "string" },
@@ -66,6 +71,11 @@ async function main() {
                 only: values.only,
                 force: values.force,
                 retryFailed: values["retry-failed"],
+            });
+        case "lncrawl":
+            return lncrawlCommand(root, args.join(" "), {
+                lncrawlDir: values["lncrawl-dir"],
+                force: values.force,
             });
         case "check":
             return checkCommand(await loadConfig(root), { delete: values.delete });

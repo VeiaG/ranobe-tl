@@ -8,6 +8,7 @@ import { chunkText, dedupeTitle } from "../src/pipeline/preprocess.js";
 import { parseOutput } from "../src/pipeline/parse.js";
 import { validateTranslation } from "../src/pipeline/validate.js";
 import type { Config } from "../src/config.js";
+import { htmlToText } from "../src/commands/lncrawl.js";
 
 const config = {
     sourceLanguage: "English",
@@ -103,6 +104,11 @@ test("validate: loops are caught, laughter and doubled names are not", () => {
 
     const looped = prose.slice(0, 600) + " і сказав він".repeat(30);
     assert.match(validateTranslation(looped, looped, config).problems.join(), /loop/);
+});
+
+test("lncrawl html → text, <think> stripped", () => {
+    assert.equal(htmlToText("<p>One &amp; two</p><p>Three<br>four &#8212; five</p>"), "One & two\n\nThree\nfour — five");
+    assert.equal(parseOutput("<think>hmm</think>\n<translation>\nТекст\n</translation>").translation, "Текст");
 });
 
 test("preprocess: duplicated title and chunking", () => {

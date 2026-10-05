@@ -25,7 +25,10 @@ function block(text: string, tag: string): string | undefined {
 
 export function parseOutput(raw: string): ParsedOutput {
     const problems: string[] = [];
-    const text = raw.replace(/^\s*```[a-z]*\n?|\n?```\s*$/g, "");
+    const text = raw
+        // reasoning models served through OpenAI-compatible APIs may prepend their thoughts
+        .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
+        .replace(/^\s*```[a-z]*\n?|\n?```\s*$/g, "");
 
     const title = block(text, "title")?.trim();
     let translation = block(text, "translation");

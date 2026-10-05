@@ -42,6 +42,13 @@ const ConfigSchema = z.object({
 
     /** Always-on terms; treated as locked and sent with every chunk. */
     fixedTerms: z.record(z.string(), z.string()).default({}),
+    /** Novel title and synopsis, given to the model as background. */
+    novel: z
+        .object({
+            title: z.string().default(""),
+            synopsis: z.string().default(""),
+        })
+        .prefault({}),
     /** Extra instructions appended to the system prompt. */
     instructions: z.string().default(""),
 
