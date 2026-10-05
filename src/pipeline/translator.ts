@@ -98,10 +98,8 @@ export class Translator {
             try {
                 const res = await generateText({
                     model: this.setup.model,
-                    messages: [
-                        { role: "system", content: this.system, providerOptions: this.setup.systemProviderOptions },
-                        { role: "user", content: prompt },
-                    ],
+                    system: { role: "system", content: this.system, providerOptions: this.setup.systemProviderOptions },
+                    prompt,
                     providerOptions: this.setup.providerOptions,
                     maxOutputTokens: this.config.maxOutputTokens,
                     temperature: this.config.temperature,
