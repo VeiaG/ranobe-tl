@@ -4,7 +4,7 @@ import { Glossary, evidenceFound } from "../src/glossary/glossary.js";
 import { importLegacy, parseLegacyValue } from "../src/glossary/importLegacy.js";
 import { TermMatcher } from "../src/glossary/match.js";
 import { GlossaryStore, genderAt } from "../src/glossary/store.js";
-import { chunkText, dedupeTitle } from "../src/pipeline/preprocess.js";
+import { chunkText, cleanSource, dedupeTitle } from "../src/pipeline/preprocess.js";
 import { parseOutput } from "../src/pipeline/parse.js";
 import { validateTranslation } from "../src/pipeline/validate.js";
 import type { Config } from "../src/config.js";
@@ -126,6 +126,11 @@ test("validate: loops are caught, laughter and doubled names are not", () => {
 test("lncrawl html → text, <think> stripped", () => {
     assert.equal(htmlToText("<p>One &amp; two</p><p>Three<br>four &#8212; five</p>"), "One & two\n\nThree\nfour — five");
     assert.equal(parseOutput("<think>hmm</think>\n<translation>\nТекст\n</translation>").translation, "Текст");
+});
+
+test("preprocess: Cloudflare email artifacts are removed", () => {
+    const config = { stringsToRemove: [], patternsToRemove: [] } as unknown as Config;
+    assert.equal(cleanSource("Title\n\nI lived lo…[email protected]#$%] (Liera)", config), "Title\n\nI lived lo…#$%] (Liera)");
 });
 
 test("preprocess: duplicated title and chunking", () => {

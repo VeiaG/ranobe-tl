@@ -6,7 +6,11 @@ export interface SourceCheck {
 }
 
 export function cleanSource(text: string, config: Config): string {
-    let out = text.replace(/\r\n|\r/g, "\n");
+    let out = text
+        .replace(/\r\n|\r/g, "\n")
+        // Cloudflare email obfuscation left by scrapers: anything with "@" became "[email protected]".
+        // Models read it as corrupted text and start summarizing the passage around it.
+        .replace(/\[email[\s ]+protected\]/gi, "");
     for (const s of config.stringsToRemove) out = out.replaceAll(s, "");
     for (const p of config.patternsToRemove) out = out.replace(new RegExp(p, "gim"), "");
     out = dedupeTitle(out);

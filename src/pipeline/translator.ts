@@ -164,7 +164,7 @@ export class Translator {
 
     private async debug(chapter: number, chunk: number, attempt: number, prompt: string, output: string) {
         if (!this.config.debug.savePrompts) return;
-        const dir = path.join(this.config.root, this.config.debug.folder);
+        const dir = path.resolve(this.config.root, this.config.debug.folder);
         await fs.mkdir(dir, { recursive: true });
         const base = path.join(dir, `${chapter}_${chunk + 1}_${attempt}`);
         await fs.writeFile(`${base}_prompt.txt`, `${this.system}\n\n===== USER =====\n\n${prompt}`, "utf-8");
