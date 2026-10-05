@@ -1,6 +1,6 @@
 {
   "name": "ranobe-tl",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "LLM pipeline for translating web novels chapter by chapter with a growing glossary",
   "type": "module",
   "license": "MIT",

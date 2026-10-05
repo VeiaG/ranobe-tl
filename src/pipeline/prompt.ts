@@ -19,6 +19,7 @@ Translate the text inside <source> completely and faithfully: every paragraph, e
 The user message contains a glossary of terms found in this text, formatted as:
   source → translation [type, gender, note]
 Use these translations consistently, declined/conjugated as ${to} grammar requires. The bracketed part is reference information only: never copy it into the translation. Gender tells you which grammatical gender to use for that character (m = male, f = female).
+Letter case is not part of a glossary entry: follow the source at each occurrence. If the source writes the term with a capital letter, capitalize the translation; if the source writes it in lowercase (e.g. a material or a common noun), write the translation in lowercase too, except at the start of a sentence.
 
 ## Output format
 Respond with exactly these blocks and nothing outside them:
@@ -41,7 +42,7 @@ List glossary entries that future chapters need for consistency:
 Do NOT list common words or phrases with an obvious translation ("father", "home", "sword", "fourth uncle").
 Do not list glossary terms you used unchanged.
 
-Each item: {"source": "${from} term as in the text", "target": "${to} translation", "type": one of ${TERM_TYPES.map((t) => `"${t}"`).join(", ")}, "gender": "m" | "f" | "unknown" (persons only), "note": "optional short context", "evidence": "optional exact quote"}
+Each item: {"source": "${from} term as in the text", "target": "${to} translation, capitalized only if the source capitalizes the term", "type": one of ${TERM_TYPES.map((t) => `"${t}"`).join(", ")}, "gender": "m" | "f" | "unknown" (persons only), "note": "optional short context", "evidence": "optional exact quote"}
 
 Gender rules:
 - For a new person set gender only if the text makes it clear (pronouns, titles); otherwise "unknown".
