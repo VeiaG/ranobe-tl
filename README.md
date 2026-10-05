@@ -128,6 +128,7 @@ Only `range` is required.
 | `validation.minRatio` / `maxRatio` | 0.8 / 1.15 | allowed translation / source length |
 | `validation.maxLatinPercent` | 3 | share of Latin letters in the output; set 100 for Latin-script targets |
 | `validation.maxRepeatSpan` | 200 | max characters of one phrase repeated back to back ("the the the …") |
+| `validation.maxParagraphLoss` | 0.1 | max share of source paragraphs that may disappear in a chunk (merged or summarized); compared from 20 paragraphs up |
 | `validation.minSourceChars` | 1000 | shorter sources are skipped |
 | `debug.savePrompts` | false | save every prompt and raw response to `debug.folder` |
 | `debug.folder` | `debug` | |

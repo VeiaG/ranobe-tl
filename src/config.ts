@@ -69,6 +69,8 @@ const ConfigSchema = z.object({
             maxLatinPercent: z.number().default(3),
             /** Max characters covered by one phrase repeated back to back ("the the the …"). */
             maxRepeatSpan: z.number().default(200),
+            /** Max share of source paragraphs that may go missing (merged or summarized), per chunk. */
+            maxParagraphLoss: z.number().min(0).max(1).default(0.1),
         })
         .prefault({}),
 

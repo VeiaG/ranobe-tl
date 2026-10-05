@@ -49,6 +49,13 @@ function sameGram(words: string[], a: number, b: number, n: number): boolean {
     return true;
 }
 
+/** Short chunks are not compared by paragraphs: one merged line would already look like a big loss. */
+const MIN_PARAGRAPHS_TO_COMPARE = 20;
+
+export function countParagraphs(text: string): number {
+    return text.split(/\n\s*\n+/).filter((p) => p.trim()).length;
+}
+
 /** Below this many Latin letters a chunk is never flagged: a few names or a short note are fine. */
 const MIN_LATIN_LETTERS = 40;
 
@@ -80,6 +87,18 @@ export function validateTranslation(source: string, translation: string, config:
     }
     for (const [re, msg] of LEAK_PATTERNS) {
         if (re.test(translation)) problems.push(msg);
+    }
+    // A summarized passage keeps the length almost right but loses whole paragraphs.
+    const sourceParagraphs = countParagraphs(source);
+    const translatedParagraphs = countParagraphs(translation);
+    if (
+        translation.trim() &&
+        sourceParagraphs >= MIN_PARAGRAPHS_TO_COMPARE &&
+        translatedParagraphs < sourceParagraphs * (1 - v.maxParagraphLoss)
+    ) {
+        problems.push(
+            `${translatedParagraphs} paragraphs instead of ${sourceParagraphs}: some passages were merged or summarized; translate every paragraph of the source as a separate paragraph`
+        );
     }
     const latinOnly = problems.length === 1 && problems[0].startsWith("too much untranslated");
     return { ok: problems.length === 0, problems, ratio, latinPercent: latin, latinOnly };

@@ -12,7 +12,7 @@ import { htmlToText } from "../src/commands/lncrawl.js";
 
 const config = {
     sourceLanguage: "English",
-    validation: { minSourceChars: 10, minRatio: 0.8, maxRatio: 1.15, maxLatinPercent: 3, maxRepeatSpan: 200 },
+    validation: { minSourceChars: 10, minRatio: 0.8, maxRatio: 1.15, maxLatinPercent: 3, maxRepeatSpan: 200, maxParagraphLoss: 0.1 },
 } as Config;
 
 test("matcher: longest match, possessive, capitalized single words", () => {
@@ -112,6 +112,19 @@ test("validate: ratio, latin, leaks", () => {
     // a short chunk with a couple of names in Latin is fine
     assert.ok(validateTranslation("a".repeat(140), "б".repeat(110) + " Oregairu Munpia", config).ok);
     assert.match(validateTranslation(source, "б".repeat(900) + " [person, m]", config).problems.join(), /annotation/);
+});
+
+test("validate: lost paragraphs are caught, small chunks are not compared", () => {
+    const paragraphs = (n: number, word: string) =>
+        Array.from({ length: n }, (_, i) => `${word} ${i} ${"ще трохи тексту ".repeat(3)}${i * 7}.`).join("\n\n");
+    const source = paragraphs(30, "Paragraph");
+    // 30 → 29: a merged line is fine
+    assert.ok(validateTranslation(source, paragraphs(29, "Абзац") + " " + "довше. ".repeat(4), config).ok);
+    // 30 → 25: a passage was summarized
+    const summarized = paragraphs(25, "Абзац") + " " + "довше речення для довжини. ".repeat(22);
+    assert.match(validateTranslation(source, summarized, config).problems.join(), /25 paragraphs instead of 30/);
+    // short chunks are not compared
+    assert.ok(!validateTranslation(paragraphs(10, "Paragraph"), paragraphs(7, "Абзац") + " " + "довше. ".repeat(20), config).problems.some((p) => p.includes("paragraphs instead")));
 });
 
 test("validate: loops are caught, laughter and doubled names are not", () => {
