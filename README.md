@@ -122,7 +122,7 @@ Only `range` is required.
 | `fixedTerms` | `{}` | `{ "source": "translation" }`: always sent, never changed |
 | `stringsToRemove` | `[]` | exact strings cut from the source before translation |
 | `patternsToRemove` | translator/editor credit lines | regexes (flags `gim`) cut from the source; setting this replaces the default |
-| `chunkSize` | 15000 | max characters per request; longer chapters are split on paragraphs |
+| `chunkSize` | 8000 | max characters per request; longer chapters are split into equal parts on paragraphs. Long chunks make some models summarize passages instead of translating them |
 | `contextChars` | 1000 | tail of the previous chunk's translation sent for continuity |
 | `maxAttempts` | 3 | per chunk |
 | `validation.minRatio` / `maxRatio` | 0.8 / 1.15 | allowed translation / source length |

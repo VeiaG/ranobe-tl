@@ -34,7 +34,7 @@ const ConfigSchema = z.object({
     /** Output token limit per request; a full chapter needs ~10–15k. */
     maxOutputTokens: z.number().int().min(1000).default(32000),
 
-    chunkSize: z.number().int().min(1000).default(15000),
+    chunkSize: z.number().int().min(1000).default(8000),
     /** Attempts per chunk when the output fails validation or the request errors. */
     maxAttempts: z.number().int().min(1).default(3),
     /** Characters of the previous chunk's translation passed as context. */
