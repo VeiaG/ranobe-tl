@@ -15,6 +15,38 @@ const LEAK_PATTERNS: [RegExp, string][] = [
     [/"(?:source|target)"\s*:/, "terms JSON inside the text"],
 ];
 
+/**
+ * Longest run of a word n-gram (1–8 words) repeated back to back, e.g. "the the the …".
+ * `span` is the run length in characters: laughter like "ха ха ха" stays short,
+ * a model stuck in a loop produces hundreds of characters.
+ */
+export function longestRepeat(text: string): { gram: string; count: number; span: number } {
+    const words = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+    let best = { gram: "", count: 1, span: 0 };
+    for (let n = 1; n <= 8; n++) {
+        let i = 0;
+        while (i + 2 * n <= words.length) {
+            let count = 1;
+            while (sameGram(words, i, i + count * n, n)) count++;
+            if (count > 1) {
+                const gram = words.slice(i, i + n).join(" ");
+                const span = (gram.length + 1) * count;
+                if (span > best.span) best = { gram, count, span };
+                i += count * n;
+            } else {
+                i++;
+            }
+        }
+    }
+    return best;
+}
+
+function sameGram(words: string[], a: number, b: number, n: number): boolean {
+    if (b + n > words.length) return false;
+    for (let k = 0; k < n; k++) if (words[a + k] !== words[b + k]) return false;
+    return true;
+}
+
 export function latinPercent(text: string): number {
     const latin = text.match(/[a-zA-Z]/g)?.length ?? 0;
     const letters = text.match(/\p{L}/gu)?.length ?? 0;
@@ -35,6 +67,10 @@ export function validateTranslation(source: string, translation: string, config:
     }
     if (latin > v.maxLatinPercent) {
         problems.push(`too much untranslated ${config.sourceLanguage} text (${latin.toFixed(1)}% Latin letters)`);
+    }
+    const repeat = longestRepeat(translation);
+    if (repeat.count >= 3 && repeat.span >= v.maxRepeatSpan) {
+        problems.push(`the text degenerates into a loop ("${repeat.gram.slice(0, 40)}" repeated ${repeat.count} times)`);
     }
     for (const [re, msg] of LEAK_PATTERNS) {
         if (re.test(translation)) problems.push(msg);

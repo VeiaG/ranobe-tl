@@ -53,6 +53,8 @@ const ConfigSchema = z.object({
             maxRatio: z.number().default(1.15),
             /** Max share of Latin letters among all letters in the output, %. */
             maxLatinPercent: z.number().default(3),
+            /** Max characters covered by one phrase repeated back to back ("the the the …"). */
+            maxRepeatSpan: z.number().default(200),
         })
         .prefault({}),
 

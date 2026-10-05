@@ -11,7 +11,7 @@ import type { Config } from "../src/config.js";
 
 const config = {
     sourceLanguage: "English",
-    validation: { minSourceChars: 10, minRatio: 0.8, maxRatio: 1.15, maxLatinPercent: 3 },
+    validation: { minSourceChars: 10, minRatio: 0.8, maxRatio: 1.15, maxLatinPercent: 3, maxRepeatSpan: 200 },
 } as Config;
 
 test("matcher: longest match, possessive, capitalized single words", () => {
@@ -94,6 +94,15 @@ test("validate: ratio, latin, leaks", () => {
     assert.match(validateTranslation(source, "б".repeat(500), config).problems.join(), /too short/);
     assert.match(validateTranslation(source, "б".repeat(900) + "x".repeat(60), config).problems.join(), /Latin/);
     assert.match(validateTranslation(source, "б".repeat(900) + " [person, m]", config).problems.join(), /annotation/);
+});
+
+test("validate: loops are caught, laughter and doubled names are not", () => {
+    const prose = "Він підвівся і повільно рушив до виходу з печери. ".repeat(20);
+    assert.ok(validateTranslation(prose, prose + "ха ".repeat(12), config).ok);
+    assert.ok(validateTranslation(prose, prose + "Палац Небесного Грому, Палац Небесного Грому!", config).ok);
+
+    const looped = prose.slice(0, 600) + " і сказав він".repeat(30);
+    assert.match(validateTranslation(looped, looped, config).problems.join(), /loop/);
 });
 
 test("preprocess: duplicated title and chunking", () => {
