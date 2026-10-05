@@ -1,5 +1,9 @@
 # ranobe-tl
 
+[![npm](https://img.shields.io/npm/v/ranobe-tl)](https://www.npmjs.com/package/ranobe-tl)
+[![license](https://img.shields.io/npm/l/ranobe-tl)](LICENSE)
+[![node](https://img.shields.io/node/v/ranobe-tl)](https://nodejs.org)
+
 Translates web novels chapter by chapter with an LLM (OpenAI, Anthropic or Google), keeping names and terms consistent through a glossary that grows as the translation goes.
 
 - **strictly sequential**: terms found in chapter N are already known in chapter N+1
