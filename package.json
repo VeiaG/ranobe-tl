@@ -4,6 +4,14 @@
   "description": "LLM pipeline for translating web novels chapter by chapter with a growing glossary",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VeiaG/ranobe-tl.git"
+  },
+  "homepage": "https://github.com/VeiaG/ranobe-tl#readme",
+  "bugs": {
+    "url": "https://github.com/VeiaG/ranobe-tl/issues"
+  },
   "bin": {
     "ranobe-tl": "dist/cli.js"
   },
