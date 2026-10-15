@@ -83,6 +83,21 @@ test("glossary rules: new, variant, target change, gender changes", () => {
     assert.equal(g.propose({ source: "Sky Tower", target: "Інша", type: "place" }, 40, src)[0].kind, "rejected");
 });
 
+test("glossary: a rejected value is not queued again", () => {
+    const store = new GlossaryStore(":memory:");
+    const g = new Glossary(store);
+    const src = "Zhao Yun drew the blade.";
+    g.propose({ source: "Zhao Yun", target: "Чжао Юнь", type: "person", gender: "m" }, 1, src);
+    g.propose({ source: "Zhao Yun", target: "Джао Юн", type: "person", gender: "f" }, 2, src);
+    for (const c of store.listChanges("pending")) store.setChangeStatus(c.id, "rejected");
+
+    const again = g.propose({ source: "Zhao Yun", target: "Джао Юн", type: "person", gender: "f" }, 3, src);
+    assert.deepEqual(again.map((o) => o.kind), ["rejected", "rejected"]);
+    assert.equal(store.listChanges("pending").length, 0);
+    // a different value is still proposed
+    assert.equal(g.propose({ source: "Zhao Yun", target: "Чжао Юн", type: "person" }, 4, src)[0].kind, "pending");
+});
+
 test("evidence must be a real quote", () => {
     assert.ok(evidenceFound("she  smiled   COLDLY", "Then she smiled coldly."));
     assert.ok(!evidenceFound("she laughed", "Then she smiled coldly."));

@@ -212,10 +212,10 @@ export class GlossaryStore {
         return row ? toChange(row) : undefined;
     }
 
-    hasPendingChange(termId: number, field: string, newValue: string): boolean {
+    hasChange(termId: number, field: string, newValue: string, status: ChangeStatus): boolean {
         return !!this.db
-            .prepare("SELECT 1 FROM changes WHERE term_id = ? AND field = ? AND new_value = ? AND status = 'pending'")
-            .get(termId, field, newValue);
+            .prepare("SELECT 1 FROM changes WHERE term_id = ? AND field = ? AND new_value = ? AND status = ?")
+            .get(termId, field, newValue, status);
     }
 
     setChangeStatus(id: number, status: ChangeStatus): void {

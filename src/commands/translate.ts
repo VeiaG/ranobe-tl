@@ -5,6 +5,17 @@ import { Glossary } from "../glossary/glossary.js";
 import { GlossaryStore } from "../glossary/store.js";
 import { Translator } from "../pipeline/translator.js";
 import { createModel, resolveModelId } from "../providers.js";
+import { askDuringTranslation } from "./review.js";
+
+export interface TranslateOpts {
+    from?: number;
+    to?: number;
+    only?: string;
+    force?: boolean;
+    retryFailed?: boolean;
+    /** false: queue glossary changes instead of asking (like any run without a terminal). */
+    ask?: boolean;
+}
 
 export function parseIndexList(spec: string): number[] {
     return spec.split(",").flatMap((part) => {
@@ -15,10 +26,7 @@ export function parseIndexList(spec: string): number[] {
     });
 }
 
-export async function translateCommand(
-    config: Config,
-    opts: { from?: number; to?: number; only?: string; force?: boolean; retryFailed?: boolean }
-): Promise<void> {
+export async function translateCommand(config: Config, opts: TranslateOpts): Promise<void> {
     const store = new GlossaryStore(path.resolve(config.root, config.glossaryFile));
     const abort = new AbortController();
     let interrupted = false;
@@ -34,7 +42,7 @@ export async function translateCommand(
     process.on("SIGINT", onSigint);
 
     try {
-        await run(config, opts, store, abort.signal, () => interrupted);
+        await run(config, opts, store, abort, () => interrupted);
     } finally {
         process.off("SIGINT", onSigint);
         store.close();
@@ -44,13 +52,16 @@ export async function translateCommand(
 
 async function run(
     config: Config,
-    opts: { from?: number; to?: number; only?: string; force?: boolean; retryFailed?: boolean },
+    opts: TranslateOpts,
     store: GlossaryStore,
-    signal: AbortSignal,
+    abort: AbortController,
     isInterrupted: () => boolean
 ): Promise<void> {
+    const signal = abort.signal;
+    const ask = opts.ask !== false && !!process.stdin.isTTY && !!process.stdout.isTTY;
     const glossary = new Glossary(store, config.fixedTerms);
-    const translator = new Translator(config, createModel(config), glossary, store, signal);
+    const onPending = ask ? askDuringTranslation(store, () => abort.abort()) : undefined;
+    const translator = new Translator(config, createModel(config), glossary, store, signal, onPending);
 
     let indexes: number[];
     if (opts.only) indexes = parseIndexList(opts.only);
@@ -63,6 +74,7 @@ async function run(
     const force = opts.force || opts.retryFailed;
 
     console.log(chalk.cyan(`${config.provider}/${resolveModelId(config)} · ${glossary.size} glossary terms · ${indexes.length} chapters`));
+    if (!ask) console.log(chalk.dim("glossary changes are queued, not asked about (review them with: ranobe-tl glossary review)"));
 
     const counts = { done: 0, exists: 0, skipped: 0, failed: 0 };
     const started = Date.now();
@@ -95,5 +107,5 @@ async function run(
     console.log(chalk.cyan(`\n${counts.done} translated, ${counts.exists} existed, ${counts.skipped} skipped, ${counts.failed} failed in ${minutes} min`));
     console.log(chalk.dim(`tokens: ${u.input} in (${u.cachedInput} cached), ${u.output} out`));
     const pending = store.listChanges("pending").length;
-    if (pending) console.log(chalk.yellow(`${pending} glossary changes wait for review: ranobe-tl glossary changes`));
+    if (pending) console.log(chalk.yellow(`${pending} glossary changes wait for review: ranobe-tl glossary review`));
 }

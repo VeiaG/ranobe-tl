@@ -12,9 +12,10 @@ Translates web novels chapter by chapter with an LLM (OpenAI, Anthropic or Googl
 - **the model reports new terms** in a `<terms>` block, and code applies them by these rules:
   - new term → added (spelling variants of an existing term are not added)
   - gender unknown → m/f → applied retroactively
-  - gender m ↔ f → applied from this chapter only if the model quotes evidence that really exists in the source, otherwise queued
-  - a different translation for an existing term → queued for review
-  - locked terms never change
+  - gender m ↔ f → applied from this chapter only if the model quotes evidence that really exists in the source, otherwise asked about
+  - a different translation for an existing term → asked about
+  - a value you rejected once is not proposed again; locked terms never change
+- **glossary changes are decided during translation**: the run pauses after the chunk, asks about all its proposals at once, and translates the chunk again if you accepted any. Without a terminal (pm2, nohup) or with `--no-ask` they are queued for `glossary review` instead
 - **gender is stored per chapter** (`m@1 → f@840`), so re-translating old chapters keeps the old gender
 
 ## Install
@@ -54,7 +55,7 @@ Output: `translation/00001.json` → `{ "content": "...", "title": "..." }`.
 ```
 ranobe-tl init
 ranobe-tl lncrawl [title|id] [--force] [--lncrawl-dir DIR]
-ranobe-tl translate [--from N] [--to N] [--only 1,5,10-12] [--force] [--retry-failed]
+ranobe-tl translate [--from N] [--to N] [--only 1,5,10-12] [--force] [--retry-failed] [--no-ask]
 ranobe-tl check [--delete]
 ranobe-tl status
 ranobe-tl glossary <subcommand>
@@ -64,6 +65,17 @@ All commands work in the current directory; `--dir PATH` points them at another 
 
 **translate** skips chapters that already have a translation unless `--force`. Chapters that fail validation after `maxAttempts` are recorded as failed; `--retry-failed` translates only those.
 Ctrl+C once finishes the current chapter and stops; twice aborts the request in flight (that chapter is not saved). The next run continues where it stopped.
+When the model proposes changing an existing term, translate asks right away: keep, use the proposal, type your own, or skip. Accepted changes make it translate that chunk once more, so the chapter uses the new term throughout. `--no-ask` queues the proposals instead (this also happens automatically when there is no terminal).
+
+**Running in the background** (a server): use `--no-ask`, or run inside tmux to keep the prompts. With pm2:
+
+```sh
+cd my-novel
+pm2 start "$(pnpm root -g)/ranobe-tl/dist/cli.js" --name my-novel --no-autorestart --kill-timeout 600000 -- translate --no-ask
+pm2 logs my-novel
+```
+
+`--no-autorestart` keeps pm2 from starting the run again after it finishes; `--kill-timeout` lets `pm2 stop` wait for the current chapter.
 
 **check** audits existing translations with the same rules the translator uses. `--delete` removes the bad ones and marks them failed, so `translate --retry-failed` redoes them.
 

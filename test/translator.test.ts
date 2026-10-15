@@ -119,3 +119,45 @@ test("translator: chapter fails after maxAttempts and is recorded", async () => 
     assert.equal(res.status, "failed");
     assert.match(store.listChapters("failed")[0].error, /missing <translation>/);
 });
+
+test("translator: pending changes of a chunk are asked once, then the chunk is translated again", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ranobe-tl-"));
+    mkdirSync(path.join(root, "chapters"));
+    const body = "Zhao Yun walked into the Sky Tower and looked around for a long while. ".repeat(20);
+    writeFileSync(path.join(root, "chapters", "00005.txt"), `Chapter 5\n\n${body}`);
+    writeFileSync(path.join(root, "novel.json"), JSON.stringify({ range: { start: 5, end: 5 } }));
+    const config = await loadConfig(root);
+    const store = new GlossaryStore(":memory:");
+    store.insertTerm({ source: "Sky Tower", target: "Небесна Вежа", type: "place", firstChapter: null });
+    store.insertTerm({ source: "Zhao Yun", target: "Чжао Юнь", type: "person", firstChapter: null, gender: "m" });
+    const glossary = new Glossary(store);
+
+    const prose = (tower: string) => `Чжао Юнь увійшов до ${tower} й довго роззирався навкруги, нічого не кажучи. `.repeat(18);
+    const proposals =
+        `[{"source":"Sky Tower","target":"Вежа Неба","type":"place","note":"literal"},` +
+        `{"source":"Zhao Yun","target":"Чжао Юнь","type":"person","gender":"f"}]`;
+    const responses = [
+        reply(`<title>Розділ 5</title>\n<translation>\n${prose("Небесної Вежі")}\n</translation>\n<terms>${proposals}</terms>`),
+        // the second pass proposes again: queued, not asked
+        reply(`<title>Розділ 5</title>\n<translation>\n${prose("Вежі Неба")}\n</translation>\n<terms>[{"source":"Zhao Yun","target":"Чжао Юн","type":"person"}]</terms>`),
+    ];
+    const model = new MockLanguageModelV3({ doGenerate: async () => responses.shift()! });
+
+    const asked: string[][] = [];
+    const translator = new Translator(config, setup(model), glossary, store, undefined, async (pending) => {
+        asked.push(pending.map((o) => `${o.term.source}:${o.field}`));
+        const change = store.listChanges("pending").find((c) => c.field === "target")!;
+        store.updateTerm(change.termId, { target: change.newValue });
+        store.setChangeStatus(change.id, "applied");
+        return true;
+    });
+    const res = await translator.translateChapter(5);
+
+    assert.equal(res.status, "done");
+    assert.deepEqual(asked, [["Sky Tower:target", "Zhao Yun:gender"]]);
+    assert.equal(model.doGenerateCalls.length, 2);
+    assert.match(JSON.stringify(model.doGenerateCalls[1].prompt), /Sky Tower → Вежа Неба/);
+    const out = JSON.parse(readFileSync(path.join(root, "translation", "00005.json"), "utf-8"));
+    assert.match(out.content, /Вежі Неба/);
+    assert.equal(store.listChanges("pending").length, 2, "gender left pending + the second-pass proposal");
+});

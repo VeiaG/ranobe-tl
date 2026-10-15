@@ -3,7 +3,7 @@ import path from "node:path";
 import chalk from "chalk";
 import { generateText } from "ai";
 import { chapterFile, type Config } from "../config.js";
-import type { Glossary, ProposalOutcome } from "../glossary/glossary.js";
+import type { Glossary, PendingOutcome, ProposalOutcome } from "../glossary/glossary.js";
 import type { GlossaryStore } from "../glossary/store.js";
 import { checkSource, chunkText, cleanSource } from "./preprocess.js";
 import { parseOutput } from "./parse.js";
@@ -23,6 +23,12 @@ export type ChapterResult =
     | { status: "skipped"; reason: string }
     | { status: "failed"; attempts: number; reason: string };
 
+/**
+ * Decides on the glossary changes a chunk proposed, before the next chunk starts.
+ * Returns true when something was applied and the chunk should be translated again.
+ */
+export type PendingHandler = (pending: PendingOutcome[], chapter: number) => Promise<boolean>;
+
 export class Translator {
     readonly usage: Usage = { input: 0, cachedInput: 0, output: 0 };
     private system: string;
@@ -32,7 +38,8 @@ export class Translator {
         private setup: ModelSetup,
         private glossary: Glossary,
         private store: GlossaryStore,
-        private signal?: AbortSignal
+        private signal?: AbortSignal,
+        private onPending?: PendingHandler
     ) {
         this.system = systemPrompt(config);
     }
@@ -84,7 +91,8 @@ export class Translator {
         text: string,
         chunk: number,
         totalChunks: number,
-        previousContext?: string
+        previousContext?: string,
+        ask = true
     ): Promise<{ ok: true; translation: string; title?: string; attempts: number } | { ok: false; reason: string; attempts: number }> {
         let feedback: string | undefined;
         let lastReason = "";
@@ -138,18 +146,35 @@ export class Translator {
                 }
             }
 
-            this.applyTerms(parsed.terms, chapter, text);
-            return { ok: true, translation: parsed.translation, title: parsed.title, attempts: attempt };
+            const pending = this.applyTerms(parsed.terms, chapter, text);
+            const result = { ok: true as const, translation: parsed.translation, title: parsed.title, attempts: attempt };
+            // The model writes the current glossary translation into the text and only proposes the new one,
+            // so an accepted change needs one more pass. All changes of the chunk are decided first.
+            if (ask && pending.length && this.onPending && (await this.onPending(pending, chapter))) {
+                for (const o of pending) this.glossary.reload(o.term.id);
+                console.log(chalk.cyan(`  ↻ ${label}: translating again with the updated glossary`));
+                const again = await this.translateChunk(chapter, text, chunk, totalChunks, previousContext, false);
+                if (again.ok) return { ...again, attempts: attempt + again.attempts };
+                console.log(chalk.yellow(`  ⚠ ${label}: the second pass failed, keeping the first one`));
+                return { ...result, attempts: attempt + again.attempts };
+            }
+            return result;
         }
         return { ok: false, reason: lastReason, attempts: this.config.maxAttempts };
     }
 
-    private applyTerms(terms: ReturnType<typeof parseOutput>["terms"], chapter: number, sourceText: string): void {
+    /** Applies the proposed terms and returns the changes that wait for a decision. */
+    private applyTerms(terms: ReturnType<typeof parseOutput>["terms"], chapter: number, sourceText: string): PendingOutcome[] {
+        const pending: PendingOutcome[] = [];
         this.store.transaction(() => {
             for (const p of terms) {
-                for (const outcome of this.glossary.propose(p, chapter, sourceText)) logOutcome(outcome);
+                for (const outcome of this.glossary.propose(p, chapter, sourceText)) {
+                    logOutcome(outcome);
+                    if (outcome.kind === "pending") pending.push(outcome);
+                }
             }
         });
+        return pending;
     }
 
     private record(index: number, status: "done" | "failed" | "skipped", attempts: number, ratio: number | null, error: string) {

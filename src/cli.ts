@@ -19,7 +19,9 @@ Run inside a novel folder (with ${CONFIG_FILE}) or pass --dir.
   lncrawl [title|id] [--force] [--lncrawl-dir D]
                                list novels downloaded by lightnovel-crawler (GUI),
                                or unpack one into ./chapters (creates ${CONFIG_FILE})
-  translate [--from N] [--to N] [--only 1,5,10-12] [--force] [--retry-failed]
+  translate [--from N] [--to N] [--only 1,5,10-12] [--force] [--retry-failed] [--no-ask]
+                               proposed glossary changes are asked about during translation;
+                               --no-ask (or no terminal, e.g. pm2) queues them for "glossary review"
   check [--delete]             audit existing translations
   status                       chapters translated / failed / skipped
   glossary <sub>               see "ranobe-tl glossary help"
@@ -36,6 +38,7 @@ async function main() {
             only: { type: "string" },
             force: { type: "boolean" },
             "retry-failed": { type: "boolean" },
+            "no-ask": { type: "boolean" },
             delete: { type: "boolean" },
             "lncrawl-dir": { type: "string" },
             all: { type: "boolean" },
@@ -71,6 +74,7 @@ async function main() {
                 only: values.only,
                 force: values.force,
                 retryFailed: values["retry-failed"],
+                ask: !values["no-ask"],
             });
         case "lncrawl":
             return lncrawlCommand(root, args.join(" "), {

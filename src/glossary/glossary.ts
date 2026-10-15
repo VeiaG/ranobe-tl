@@ -21,6 +21,8 @@ export type ProposalOutcome =
     | { kind: "rejected"; term: Term; field: "target" | "gender"; value: string; why: string }
     | { kind: "similar"; proposed: ProposedTerm; similar: Term[] };
 
+export type PendingOutcome = Extract<ProposalOutcome, { kind: "pending" }>;
+
 const NAME_TYPES = new Set<TermType>(["person", "place", "organization"]);
 
 /** Glossary with an in-memory matcher kept in sync with the store. */
@@ -72,6 +74,7 @@ export class Glossary {
      * - gender unknown → known: applied everywhere
      * - gender m ↔ f: applied from this chapter if the evidence quote is found in the source, else pending
      * - different translation: never applied automatically, goes to the pending queue (rejected if locked)
+ * - a value rejected once is not queued again
      */
     propose(p: ProposedTerm, chapter: number, sourceText: string): ProposalOutcome[] {
         const existing = this.store.findTerm(p.source);
@@ -117,7 +120,10 @@ export class Glossary {
             });
             return { kind: "rejected", term, field: "target", value, why: "term is locked" };
         }
-        if (!this.store.hasPendingChange(term.id, "target", value)) {
+        if (this.store.hasChange(term.id, "target", value, "rejected")) {
+            return { kind: "rejected", term, field: "target", value, why: "rejected before" };
+        }
+        if (!this.store.hasChange(term.id, "target", value, "pending")) {
             this.store.addChange({
                 termId: term.id, field: "target", oldValue: term.target, newValue: value,
                 chapter, evidence: p.evidence ?? "", reason: why, status: "pending",
@@ -151,13 +157,17 @@ export class Glossary {
             return { kind: "gender-changed", term: this.reload(term.id), from: current, to };
         }
 
-        if (!this.store.hasPendingChange(term.id, "gender", to)) {
+        if (this.store.hasChange(term.id, "gender", to, "rejected")) {
+            return { kind: "rejected", term, field: "gender", value: to, why: "rejected before" };
+        }
+        if (!this.store.hasChange(term.id, "gender", to, "pending")) {
             this.store.addChange({ ...change, status: "pending" });
         }
         return { kind: "pending", term, field: "gender", value: to, why: p.evidence ? "evidence quote not found in source" : "no evidence quote" };
     }
 
-    private reload(id: number): Term {
+    /** Re-reads a term changed in the store from outside (review, prompts). */
+    reload(id: number): Term {
         const term = this.store.getTerm(id)!;
         this.terms.set(id, term);
         return term;
