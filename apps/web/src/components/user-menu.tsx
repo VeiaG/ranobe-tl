@@ -12,6 +12,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { SidebarMenuButton } from "@/components/ui/sidebar";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
@@ -26,15 +27,15 @@ export function UserMenu({ user }: { user: { name: string; email: string; role: 
         .toUpperCase();
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-md p-1.5 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50">
-                <span className="flex size-8 items-center justify-center rounded-md bg-brand/15 text-xs font-semibold text-brand">{initials || "?"}</span>
+            <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="data-popup-open:bg-sidebar-accent" />}>
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-brand/15 text-xs font-semibold text-brand">{initials || "?"}</span>
                 <span className="grid min-w-0 flex-1 leading-tight">
                     <span className="truncate text-sm font-medium">{user.name}</span>
                     <span className="truncate text-xs text-muted-foreground">{user.role === "admin" ? "Admin" : user.email}</span>
                 </span>
                 <ChevronsUpDown className="size-4 text-muted-foreground" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start" className="w-56">
+            <DropdownMenuContent side="top" align="start" className="w-(--anchor-width) min-w-56">
                 <DropdownMenuGroup>
                     <DropdownMenuLabel className="font-normal">
                         <div className="text-sm font-medium text-foreground">{user.name}</div>

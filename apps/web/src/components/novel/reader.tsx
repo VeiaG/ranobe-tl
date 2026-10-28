@@ -204,7 +204,7 @@ export function Reader({
 
     return (
         <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-            <div className="sticky top-14 z-20 -mx-4 mb-6 flex flex-wrap items-center gap-2 border-b bg-background/85 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 md:top-0 lg:-mx-8 lg:px-8">
+            <div className="sticky top-0 z-20 -mx-4 mb-6 flex flex-wrap items-center gap-2 border-b bg-background/85 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
                 <Button variant="ghost" size="sm" className="-ml-2" nativeButton={false} render={<Link href={`/novels/${novelId}/chapters`} />}>
                         <ArrowLeft />
                         <span className="hidden sm:inline">Chapters</span>
