@@ -120,6 +120,8 @@ export const providerKey = pgTable("provider_key", {
     encryptedKey: text("encrypted_key").notNull(),
     /** Last characters of the key, to tell keys apart in the UI. */
     hint: text("hint").notNull(),
+    /** Spending cap per calendar month (UTC), USD; runs using this key pause when it is reached. */
+    monthlyBudgetUsd: doublePrecision("monthly_budget_usd"),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: createdAt(),
 });
@@ -157,6 +159,8 @@ export const novel = pgTable("novel", {
     stopRequested: boolean("stop_requested").notNull().default(false),
     /** Chapters failed in a row; the run pauses itself after a few (bad key, dead endpoint). */
     failStreak: integer("fail_streak").notNull().default(0),
+    /** Total spending cap for this novel, USD; the run pauses when it is reached. */
+    budgetUsd: doublePrecision("budget_usd"),
     /** Folder of this novel in the backup storage, fixed at the first sync so renames don't move it. */
     storageFolder: text("storage_folder"),
     storageSyncedAt: timestamp("storage_synced_at", { withTimezone: true }),
@@ -292,6 +296,33 @@ export const event = pgTable(
         createdAt: createdAt(),
     },
     (t) => [index("event_novel_id").on(t.novelId, t.id)]
+);
+
+/**
+ * One model request: who paid (key), for what (novel, chapter), how many tokens. Cost is computed from the
+ * price table when shown, so fixing a price fixes the whole history. Kept when the novel or key is deleted.
+ */
+export const usageRecord = pgTable(
+    "usage_record",
+    {
+        id: bigserial("id", { mode: "number" }).primaryKey(),
+        novelId: integer("novel_id").references(() => novel.id, { onDelete: "set null" }),
+        novelTitle: text("novel_title").notNull().default(""),
+        chapter: integer("chapter"),
+        chunk: integer("chunk"),
+        attempt: integer("attempt"),
+        keyId: integer("key_id").references(() => providerKey.id, { onDelete: "set null" }),
+        provider: text("provider").notNull(),
+        model: text("model").notNull(),
+        /** All input tokens, the cached ones included. */
+        inputTokens: integer("input_tokens").notNull().default(0),
+        cachedTokens: integer("cached_tokens").notNull().default(0),
+        outputTokens: integer("output_tokens").notNull().default(0),
+        /** false: the request failed or its output was rejected by validation (spent, but wasted). */
+        ok: boolean("ok").notNull().default(true),
+        createdAt: createdAt(),
+    },
+    (t) => [index("usage_created").on(t.createdAt), index("usage_novel").on(t.novelId), index("usage_key").on(t.keyId, t.createdAt)]
 );
 
 /** Raw prompts and outputs, kept for the last attempts of each chapter (debugging). */

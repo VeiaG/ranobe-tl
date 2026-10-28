@@ -36,8 +36,8 @@ export type TranslatorEvent =
     | { type: "term"; chapter: number; outcome: ProposalOutcome }
     | { type: "retranslate"; chapter: number; chunk: number }
     | { type: "second-pass-failed"; chapter: number; chunk: number }
-    /** Raw prompt and output of every request, for debugging. */
-    | { type: "exchange"; chapter: number; chunk: number; attempt: number; system: string; prompt: string; output: string };
+    /** Every request: raw prompt and output (for debugging) and the tokens it used (for cost). */
+    | { type: "exchange"; chapter: number; chunk: number; attempt: number; system: string; prompt: string; output: string; usage: Usage; failed: boolean };
 
 export interface TranslatorOptions {
     signal?: AbortSignal;
@@ -132,6 +132,7 @@ export class Translator {
             const prompt = userPrompt({ text, terms, chapter, chunk, totalChunks, previousContext, feedback });
 
             let output: string;
+            let usage: Usage = { input: 0, cachedInput: 0, output: 0 };
             try {
                 const res = await generateText({
                     model: this.setup.model,
@@ -143,7 +144,7 @@ export class Translator {
                     maxRetries: 5,
                     abortSignal: this.opts.signal,
                 });
-                this.addUsage(res.usage);
+                usage = this.addUsage(res.usage);
                 output = res.text;
                 if (res.finishReason === "length") lastReason = "output hit the token limit";
                 if (res.finishReason === "content-filter") lastReason = "blocked by the content filter";
@@ -151,11 +152,11 @@ export class Translator {
                 // A user abort must stop the chapter, not count as a failed attempt.
                 if (this.opts.signal?.aborted) throw error;
                 lastReason = `request failed: ${error instanceof Error ? error.message : String(error)}`;
-                await this.emit({ type: "exchange", chapter, chunk, attempt, system: this.system, prompt, output: String(error) });
+                await this.emit({ type: "exchange", chapter, chunk, attempt, system: this.system, prompt, output: String(error), usage, failed: true });
                 await this.emit({ type: "attempt-failed", chapter, chunk, attempt, reason: lastReason });
                 continue;
             }
-            await this.emit({ type: "exchange", chapter, chunk, attempt, system: this.system, prompt, output });
+            await this.emit({ type: "exchange", chapter, chunk, attempt, system: this.system, prompt, output, usage, failed: false });
 
             const parsed = parseOutput(output);
             const validation = validateTranslation(text, parsed.translation, this.config, parsed.problems);
@@ -205,10 +206,13 @@ export class Translator {
         return pending;
     }
 
-    private addUsage(u: { inputTokens?: number; outputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number } }) {
-        this.usage.input += u.inputTokens ?? 0;
-        this.usage.output += u.outputTokens ?? 0;
-        this.usage.cachedInput += u.inputTokenDetails?.cacheReadTokens ?? 0;
+    /** Adds one request to the totals and returns it; `input` includes the cached part. */
+    private addUsage(u: { inputTokens?: number; outputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number } }): Usage {
+        const one = { input: u.inputTokens ?? 0, cachedInput: u.inputTokenDetails?.cacheReadTokens ?? 0, output: u.outputTokens ?? 0 };
+        this.usage.input += one.input;
+        this.usage.output += one.output;
+        this.usage.cachedInput += one.cachedInput;
+        return one;
     }
 
     private async emit(event: TranslatorEvent) {

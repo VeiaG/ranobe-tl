@@ -69,6 +69,7 @@ export async function listKeys() {
             provider: providerKey.provider,
             baseURL: providerKey.baseURL,
             hint: providerKey.hint,
+            monthlyBudgetUsd: providerKey.monthlyBudgetUsd,
             createdAt: providerKey.createdAt,
             novels: sql<number>`(select count(*) from novel n where n.provider_key_id = "provider_key"."id")::int`,
         })

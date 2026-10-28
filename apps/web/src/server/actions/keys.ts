@@ -55,3 +55,13 @@ export async function testKey(id: number, model?: string) {
         return { ok: true as const, message: `${resolveModelId(config)} answered "${res.text.trim().slice(0, 40)}" in ${((Date.now() - started) / 1000).toFixed(1)}s` };
     });
 }
+
+export async function setKeyBudget(id: number, monthlyBudgetUsd: number | null) {
+    return action(async () => {
+        await requireAdmin();
+        if (monthlyBudgetUsd !== null && (!Number.isFinite(monthlyBudgetUsd) || monthlyBudgetUsd < 0)) throw new Error("The budget must be a positive number");
+        await db.update(providerKey).set({ monthlyBudgetUsd }).where(eq(providerKey.id, id));
+        revalidatePath("/settings");
+        return { ok: true as const, message: monthlyBudgetUsd === null ? "Budget removed" : "Monthly budget saved" };
+    });
+}

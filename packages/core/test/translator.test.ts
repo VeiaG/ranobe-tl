@@ -165,3 +165,19 @@ test("translator: a pause stops the chapter, the proposals stay pending", async 
     assert.equal(model.doGenerateCalls.length, 1);
     assert.equal((await store.listChanges("pending")).length, 2);
 });
+
+test("translator: every request reports its own usage", async () => {
+    const source = "Title\n\n" + "Some text here. ".repeat(100);
+    const model = new MockLanguageModelV3({ doGenerate: async () => reply("no translation block") });
+    const seen: { attempt: number; input: number; failed: boolean }[] = [];
+    const glossary = await Glossary.load(new MemoryGlossaryStore());
+    await new Translator(parseConfig({ maxAttempts: 2 }), setup(model), glossary, {
+        onEvent: (e) => {
+            if (e.type === "exchange") seen.push({ attempt: e.attempt, input: e.usage.input, failed: e.failed });
+        },
+    }).translateChapter(1, source);
+    assert.deepEqual(seen, [
+        { attempt: 1, input: 100, failed: false },
+        { attempt: 2, input: 100, failed: false },
+    ]);
+});

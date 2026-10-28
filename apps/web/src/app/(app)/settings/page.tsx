@@ -1,11 +1,12 @@
-import { desc, eq, isNull, gt, and } from "drizzle-orm";
+import { desc, eq, isNull, gt, gte, and } from "drizzle-orm";
 import { Page, PageHeader } from "@/components/page-header";
 import { KeysPanel } from "@/components/settings/keys-panel";
 import { SettingsTabs } from "@/components/settings/settings-tabs";
 import { TelegramPanel } from "@/components/settings/telegram-panel";
 import { UsersPanel } from "@/components/settings/users-panel";
 import { db } from "@/db";
-import { invite, telegramLink, user } from "@/db/schema";
+import { invite, telegramLink, usageRecord, user } from "@/db/schema";
+import { monthStart, spent } from "@/server/budget";
 import { listKeys } from "@/server/queries";
 import { getSetting } from "@/server/settings";
 import { STORAGE_STATUS_DEFAULTS, STORAGE_STATUS_KEY, storageConfig } from "@/server/storage/client";
@@ -23,7 +24,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
     let content: React.ReactNode;
     if (tab === "keys") {
-        content = <KeysPanel keys={(await listKeys()).map((k) => ({ ...k, createdAt: k.createdAt.toISOString() }))} isAdmin={isAdmin} />;
+        const keys = await listKeys();
+        const month = await Promise.all(keys.map((k) => spent(db, and(eq(usageRecord.keyId, k.id), gte(usageRecord.createdAt, monthStart())))));
+        content = <KeysPanel keys={keys.map((k, i) => ({ ...k, createdAt: k.createdAt.toISOString(), spentThisMonth: month[i].usd }))} isAdmin={isAdmin} />;
     } else if (tab === "storage") {
         const [config, status] = await Promise.all([storageConfig(db), getSetting(db, STORAGE_STATUS_KEY, STORAGE_STATUS_DEFAULTS)]);
         const { secretEncrypted, ...rest } = config;

@@ -108,7 +108,7 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
                         </Select>
                     </Field>
                     <Field label="Temperature" htmlFor="temperature" hint="Leave empty for current Claude models.">
-                        <Input id="temperature" name="temperature" type="number" step="0.05" min={0} max={2} defaultValue={settings.temperature} placeholder="default" />
+                        <Input id="temperature" name="temperature" type="number" step="any" min={0} max={2} defaultValue={settings.temperature} placeholder="default" />
                     </Field>
                     <Field label="Attempts per chunk" htmlFor="maxAttempts">
                         <Input id="maxAttempts" name="maxAttempts" type="number" min={1} max={10} defaultValue={settings.maxAttempts} placeholder={String(defaults.maxAttempts)} />
@@ -149,16 +149,16 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
                         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                             {(
                                 [
-                                    ["minRatio", "Min length ratio", "0.05"],
-                                    ["maxRatio", "Max length ratio", "0.05"],
-                                    ["maxLatinPercent", "Max Latin, %", "0.5"],
-                                    ["maxParagraphLoss", "Max paragraph loss", "0.01"],
-                                    ["maxRepeatSpan", "Max repeated span", "10"],
-                                    ["minSourceChars", "Skip sources under", "100"],
+                                    ["minRatio", "Min length ratio"],
+                                    ["maxRatio", "Max length ratio"],
+                                    ["maxLatinPercent", "Max Latin, %"],
+                                    ["maxParagraphLoss", "Max paragraph loss"],
+                                    ["maxRepeatSpan", "Max repeated span"],
+                                    ["minSourceChars", "Skip sources under"],
                                 ] as const
-                            ).map(([key, label, step]) => (
+                            ).map(([key, label]) => (
                                 <Field key={key} label={label} htmlFor={key}>
-                                    <Input id={key} name={key} type="number" step={step} defaultValue={v[key]} placeholder={String(defaults.validation[key])} />
+                                    <Input id={key} name={key} type="number" step="any" defaultValue={v[key]} placeholder={String(defaults.validation[key])} />
                                 </Field>
                             ))}
                         </div>

@@ -151,6 +151,7 @@ export function NovelForm({ keys, initial, novelId }: { keys: KeyOption[]; initi
             model: String(f.get("model") ?? ""),
             decisionMode: mode,
             askNew,
+            budgetUsd: String(f.get("budgetUsd") ?? "").trim() ? Number(f.get("budgetUsd")) : null,
         };
         start(async () => {
             const res = novelId ? await updateNovel(novelId, input) : await createNovel(input);
@@ -230,6 +231,9 @@ export function NovelForm({ keys, initial, novelId }: { keys: KeyOption[]; initi
                     </Field>
                     <Field label="Model" htmlFor="model" hint={defaultModel ? `Leave empty for ${defaultModel}.` : key ? "Required for this provider." : undefined}>
                         <Input id="model" name="model" defaultValue={initial?.model} placeholder={defaultModel ?? "model id"} className="font-mono text-sm" />
+                    </Field>
+                    <Field label="Budget, USD" htmlFor="budgetUsd" hint="Total for this novel; the run pauses when it is spent. Empty: no cap.">
+                        <Input id="budgetUsd" name="budgetUsd" type="number" min={0} step="any" defaultValue={initial?.budgetUsd ?? ""} placeholder="no cap" />
                     </Field>
                 </div>
             </section>

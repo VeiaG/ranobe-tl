@@ -2,9 +2,10 @@ import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { Glossary, createModel, describeEvent, resolveModelId, type PendingHandler, type TranslatorEvent } from "@ranobe-tl/core";
 import { Translator } from "@ranobe-tl/core";
 import type { DB } from "@/db";
-import { chapter, exchange, novel, providerKey, termChange } from "@/db/schema";
+import { chapter, exchange, novel, providerKey, termChange, usageRecord } from "@/db/schema";
 import { decrypt } from "@/lib/crypto";
 import { logEvent } from "@/server/activity";
+import { budgetStop } from "@/server/budget";
 import { PgGlossaryStore } from "@/server/glossary-store";
 import { novelConfig } from "@/server/novel-config";
 import { requestSync } from "@/server/queue";
@@ -51,6 +52,9 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
     }
     const model = resolveModelId(config);
 
+    const overBudget = await budgetStop(db, n, key);
+    if (overBudget) return halt(db, n, notifier, overBudget);
+
     await db.update(chapter).set({ status: "translating", error: "" }).where(eq(chapter.id, ch.id));
     await db.update(novel).set({ statusMessage: `Translating chapter ${ch.index}` }).where(eq(novel.id, novelId));
     await db.delete(exchange).where(and(eq(exchange.novelId, novelId), eq(exchange.chapter, ch.index)));
@@ -94,8 +98,28 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
               }
             : undefined;
 
+    // usage rows of this chapter by "chunk:attempt", to mark the ones validation rejected
+    const usageIds = new Map<string, number>();
     const onEvent = async (e: TranslatorEvent) => {
         if (e.type === "exchange") {
+            const [row] = await db
+                .insert(usageRecord)
+                .values({
+                    novelId,
+                    novelTitle: n.title,
+                    chapter: e.chapter,
+                    chunk: e.chunk,
+                    attempt: e.attempt,
+                    keyId: key.id,
+                    provider: key.provider,
+                    model,
+                    inputTokens: e.usage.input,
+                    cachedTokens: e.usage.cachedInput,
+                    outputTokens: e.usage.output,
+                    ok: !e.failed,
+                })
+                .returning({ id: usageRecord.id });
+            usageIds.set(`${e.chunk}:${e.attempt}`, row.id);
             await db.insert(exchange).values({
                 novelId,
                 chapter: e.chapter,
@@ -112,6 +136,10 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
                 .set({ statusMessage: `Translating chapter ${ch.index} · part ${e.chunk + 1} of ${e.totalChunks}` })
                 .where(eq(novel.id, novelId));
             return;
+        }
+        if (e.type === "attempt-failed" || e.type === "latin-accepted") {
+            const id = usageIds.get(`${e.chunk}:${e.attempt}`);
+            if (id) await db.update(usageRecord).set({ ok: e.type === "latin-accepted" }).where(eq(usageRecord.id, id));
         }
         const d = describeEvent(e);
         if (d) await logEvent(db, novelId, d.level, d.message, e.chapter);

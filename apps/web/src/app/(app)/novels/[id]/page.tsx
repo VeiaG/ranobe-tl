@@ -6,7 +6,9 @@ import { ActivityFeed } from "@/components/novel/activity-feed";
 import { StatCard } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { db } from "@/db";
-import { chapter } from "@/db/schema";
+import { chapter, usageRecord } from "@/db/schema";
+import { spent } from "@/server/budget";
+import { formatUsd } from "@/server/pricing";
 import { formatNumber, formatTokens, timeAgo } from "@/lib/utils";
 import { getNovel } from "@/server/queries";
 
@@ -14,7 +16,7 @@ export default async function NovelOverview({ params }: { params: Promise<{ id: 
     const id = Number((await params).id);
     const d = await getNovel(id);
     const n = d.novel;
-    const [recent, [speed]] = await Promise.all([
+    const [recent, [speed], spentUsd] = await Promise.all([
         db
             .select({ index: chapter.index, title: chapter.title, sourceTitle: chapter.sourceTitle, translatedAt: chapter.translatedAt })
             .from(chapter)
@@ -25,6 +27,7 @@ export default async function NovelOverview({ params }: { params: Promise<{ id: 
             .select({ seconds: avg(chapter.duration) })
             .from(chapter)
             .where(and(eq(chapter.novelId, id), eq(chapter.status, "done"))),
+        spent(db, eq(usageRecord.novelId, id)),
     ]);
     const untranslated = d.total - d.done - d.failed - d.skipped - d.queued;
     const segments = [
@@ -104,9 +107,15 @@ export default async function NovelOverview({ params }: { params: Promise<{ id: 
                     <StatCard label="Model" value={<span className="block truncate font-mono text-base">{model}</span>} hint={d.key ? `${d.key.name} ···${d.key.hint}` : "no key"} icon={Cpu} />
                     <StatCard label="Glossary" value={formatNumber(d.terms)} hint="terms" icon={Library} />
                     <StatCard
-                        label="Tokens"
-                        value={formatTokens(n.inputTokens + n.outputTokens)}
-                        hint={`${formatTokens(n.inputTokens)} in${n.cachedTokens ? ` (${formatTokens(n.cachedTokens)} cached)` : ""} · ${formatTokens(n.outputTokens)} out`}
+                        label="Spent"
+                        value={formatUsd(spentUsd.usd, 2)}
+                        hint={
+                            n.budgetUsd !== null ? (
+                                <span className={spentUsd.usd >= n.budgetUsd ? "text-destructive" : undefined}>of {formatUsd(n.budgetUsd, 2)} budget</span>
+                            ) : (
+                                `${formatTokens(n.inputTokens + n.outputTokens)} tokens${spentUsd.unpriced.length ? " · price not set" : ""}`
+                            )
+                        }
                         icon={Coins}
                     />
                     <StatCard label="Per chapter" value={secs ? `${Math.round(secs)}s` : "—"} hint="average time" icon={Clock} />

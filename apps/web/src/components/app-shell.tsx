@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
-import { Inbox, LayoutGrid, Plus, Settings } from "lucide-react";
+import { ChartColumn, Inbox, LayoutGrid, Plus, Settings } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 import { NovelStatusDot } from "@/components/status";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,7 @@ export interface ShellProps {
 const NAV = [
     { href: "/", label: "Dashboard", icon: LayoutGrid, exact: true },
     { href: "/decisions", label: "Decisions", icon: Inbox },
+    { href: "/usage", label: "Usage", icon: ChartColumn },
     { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -144,7 +145,7 @@ export function AppShell({ defaultOpen, children, ...props }: ShellProps) {
                         </Button>
                     )}
                 </header>
-                <main className="flex-1">{children}</main>
+                <div className="flex-1">{children}</div>
             </SidebarInset>
         </SidebarProvider>
     );

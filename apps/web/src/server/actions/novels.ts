@@ -21,6 +21,8 @@ const NovelBaseSchema = z.object({
     providerKeyId: z.number().int().nullable().default(null),
     model: z.string().trim().default(""),
     decisionMode: z.enum(DECISION_MODES).default("queue"),
+    /** Total spending cap in USD; null = no cap. */
+    budgetUsd: z.number().min(0).nullable().default(null),
     /** null: new terms are added without asking. */
     askNew: z
         .object({

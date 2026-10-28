@@ -1,19 +1,17 @@
 "use server";
 
-import { and, between, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { chapter, novel, type ChapterStatus } from "@/db/schema";
+import { chapter, novel } from "@/db/schema";
 import { logEvent } from "@/server/activity";
 import { enqueueNovel } from "@/server/queue";
+import { estimateRun } from "@/server/estimate";
+import { scopeWhere, type RunScope } from "@/server/scope";
 import { requireUser } from "@/server/session";
 import { action } from "./util";
 
-export type RunScope =
-    | { kind: "untranslated" }
-    | { kind: "failed" }
-    | { kind: "range"; from: number; to: number; retranslate: boolean }
-    | { kind: "chapters"; indexes: number[] };
+export type { RunScope };
 
 function refresh(novelId: number) {
     revalidatePath(`/novels/${novelId}`, "layout");
@@ -28,15 +26,7 @@ export async function startRun(novelId: number, scope: RunScope) {
         if (!n) throw new Error("novel not found");
         if (!n.providerKeyId) throw new Error("Choose an API key in the novel settings first");
 
-        let where;
-        if (scope.kind === "untranslated") where = inArray(chapter.status, ["new"] satisfies ChapterStatus[]);
-        else if (scope.kind === "failed") where = inArray(chapter.status, ["failed"] satisfies ChapterStatus[]);
-        else if (scope.kind === "range") {
-            const statuses: ChapterStatus[] = scope.retranslate ? ["new", "failed", "skipped", "done"] : ["new", "failed"];
-            where = and(between(chapter.index, Math.min(scope.from, scope.to), Math.max(scope.from, scope.to)), inArray(chapter.status, statuses));
-        } else {
-            where = and(inArray(chapter.index, scope.indexes.length ? scope.indexes : [-1]), inArray(chapter.status, ["new", "failed", "skipped", "done"] satisfies ChapterStatus[]));
-        }
+        const where = scopeWhere(scope);
         const queued = await db
             .update(chapter)
             .set({ status: "queued" })
@@ -112,5 +102,13 @@ export async function clearQueue(novelId: number) {
         await db.update(novel).set({ status: "idle", statusMessage: "" }).where(eq(novel.id, novelId));
         refresh(novelId);
         return { ok: true as const, message: `${rows.length} chapters removed from the queue` };
+    });
+}
+
+/** What a run with this scope would cost, before starting it. */
+export async function estimate(novelId: number, scope: RunScope) {
+    return action(async () => {
+        await requireUser();
+        return estimateRun(db, novelId, scope);
     });
 }

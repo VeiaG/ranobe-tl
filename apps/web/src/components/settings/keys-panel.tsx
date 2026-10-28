@@ -12,8 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { timeAgo } from "@/lib/utils";
-import { addKey, deleteKey, testKey } from "@/server/actions/keys";
+import { cn, timeAgo } from "@/lib/utils";
+import { addKey, deleteKey, setKeyBudget, testKey } from "@/server/actions/keys";
 
 interface KeyRow {
     id: number;
@@ -23,6 +23,54 @@ interface KeyRow {
     hint: string;
     createdAt: string;
     novels: number;
+    monthlyBudgetUsd: number | null;
+    spentThisMonth: number;
+}
+
+function usd(n: number) {
+    return n >= 100 ? `$${n.toFixed(0)}` : `$${n.toFixed(2)}`;
+}
+
+/** This month's spend against the key's monthly cap; click to change the cap. */
+function KeyBudget({ k, isAdmin }: { k: KeyRow; isAdmin: boolean }) {
+    const router = useRouter();
+    const [editing, setEditing] = useState(false);
+    const [value, setValue] = useState(k.monthlyBudgetUsd === null ? "" : String(k.monthlyBudgetUsd));
+    const [pending, start] = useTransition();
+    const over = k.monthlyBudgetUsd !== null && k.spentThisMonth >= k.monthlyBudgetUsd;
+    if (editing) {
+        return (
+            <form
+                className="flex items-center gap-1"
+                onSubmit={(e) => {
+                    e.preventDefault();
+                    start(async () => {
+                        const res = await setKeyBudget(k.id, value.trim() ? Number(value) : null);
+                        if (!res.ok) return void toast.error(res.error);
+                        setEditing(false);
+                        router.refresh();
+                    });
+                }}
+            >
+                <Input autoFocus value={value} onChange={(e) => setValue(e.target.value)} placeholder="no cap" inputMode="decimal" className="h-7 w-24 text-right text-xs" />
+                <Button type="submit" size="xs" disabled={pending}>
+                    Save
+                </Button>
+            </form>
+        );
+    }
+    return (
+        <button
+            type="button"
+            disabled={!isAdmin}
+            onClick={() => setEditing(true)}
+            title={isAdmin ? "Set a monthly budget" : undefined}
+            className={cn("rounded-md px-1.5 py-0.5 text-right text-xs tabular-nums hover:bg-muted disabled:hover:bg-transparent", over ? "text-destructive" : "text-muted-foreground")}
+        >
+            <span className={cn("font-medium", !over && "text-foreground")}>{usd(k.spentThisMonth)}</span>
+            {k.monthlyBudgetUsd !== null ? ` / ${usd(k.monthlyBudgetUsd)}` : ""} this month
+        </button>
+    );
 }
 
 const PROVIDER_STYLE: Record<string, string> = {
@@ -77,6 +125,7 @@ export function KeysPanel({ keys, isAdmin }: { keys: KeyRow[]; isAdmin: boolean 
                                     {k.baseURL && <span className="font-mono"> · {k.baseURL}</span>} · added {timeAgo(k.createdAt)}
                                 </div>
                             </div>
+                            <KeyBudget k={k} isAdmin={isAdmin} />
                             <Badge variant="muted">{k.novels === 1 ? "1 novel" : `${k.novels} novels`}</Badge>
                             <Button variant="outline" size="sm" onClick={() => test(k.id)} disabled={busy === k.id}>
                                 {busy === k.id ? <Loader2 className="animate-spin" /> : <Zap />}

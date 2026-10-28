@@ -25,6 +25,7 @@ export default async function NovelSettingsPage({ params }: { params: Promise<{ 
                         model: n.model,
                         decisionMode: n.decisionMode,
                         askNew: n.askNew,
+                        budgetUsd: n.budgetUsd,
                     }}
                 />
             </section>

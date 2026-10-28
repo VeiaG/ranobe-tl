@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Inbox, ListRestart, Loader2, Pause, Play, Square, X } from "lucide-react";
+import { ChevronDown, Coins, Inbox, ListRestart, Loader2, Pause, Play, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,7 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn, formatNumber } from "@/lib/utils";
-import { clearQueue, pauseRun, resumeRun, startRun, stopNow, type RunScope } from "@/server/actions/run";
+import { clearQueue, estimate, pauseRun, resumeRun, startRun, stopNow, type RunScope } from "@/server/actions/run";
 import { useLive } from "./live";
 
 export interface RunCounts {
@@ -135,6 +135,7 @@ export function RunControls({ novelId, counts, hasKey }: { novelId: number; coun
                 </div>
             )}
             <StartDialog
+                novelId={novelId}
                 open={open}
                 onOpenChange={setOpen}
                 counts={counts}
@@ -151,11 +152,54 @@ export function RunControls({ novelId, counts, hasKey }: { novelId: number; coun
     );
 }
 
-function StartDialog({ open, onOpenChange, counts, pending, onStart }: { open: boolean; onOpenChange: (v: boolean) => void; counts: RunCounts; pending: boolean; onStart: (scope: RunScope) => void }) {
+interface EstimateView {
+    chapters: number;
+    usd: number | null;
+    model: string;
+    basis: "history" | "guess";
+    spentUsd: number;
+    budgetUsd: number | null;
+}
+
+function usd(n: number) {
+    return n >= 100 ? `$${n.toFixed(0)}` : n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(3)}`;
+}
+
+function StartDialog({
+    novelId,
+    open,
+    onOpenChange,
+    counts,
+    pending,
+    onStart,
+}: {
+    novelId: number;
+    open: boolean;
+    onOpenChange: (v: boolean) => void;
+    counts: RunCounts;
+    pending: boolean;
+    onStart: (scope: RunScope) => void;
+}) {
     const [kind, setKind] = useState<ScopeKind>(counts.untranslated ? "untranslated" : counts.failed ? "failed" : "range");
     const [from, setFrom] = useState(String(counts.minIndex || 1));
     const [to, setTo] = useState(String(counts.maxIndex || 1));
     const [retranslate, setRetranslate] = useState(false);
+
+    const [est, setEst] = useState<EstimateView | null>(null);
+    const scope: RunScope = kind === "range" ? { kind: "range", from: Number(from), to: Number(to), retranslate } : { kind };
+    const scopeKey = JSON.stringify(scope);
+    useEffect(() => {
+        if (!open) return;
+        let alive = true;
+        const t = setTimeout(async () => {
+            const res = await estimate(novelId, JSON.parse(scopeKey));
+            if (alive && res.ok && res.data) setEst(res.data);
+        }, 250);
+        return () => {
+            alive = false;
+            clearTimeout(t);
+        };
+    }, [open, novelId, scopeKey]);
 
     const options: { kind: ScopeKind; title: string; text: string; disabled?: boolean }[] = [
         { kind: "untranslated", title: "Everything not translated yet", text: `${formatNumber(counts.untranslated)} chapters, in order`, disabled: !counts.untranslated },
@@ -210,16 +254,40 @@ function StartDialog({ open, onOpenChange, counts, pending, onStart }: { open: b
                         </label>
                     </div>
                 )}
+                {est && (
+                    <div className="flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm">
+                        <Coins className="mt-0.5 size-4 shrink-0 text-brand" />
+                        <div className="min-w-0">
+                            <div>
+                                {est.chapters === 0 ? (
+                                    "No chapters in this selection"
+                                ) : est.usd === null ? (
+                                    <>
+                                        {formatNumber(est.chapters)} chapters · no price for <code className="font-mono text-xs">{est.model || "this model"}</code> (set it in Usage → Prices)
+                                    </>
+                                ) : (
+                                    <>
+                                        {formatNumber(est.chapters)} chapters · about <span className="font-medium">{usd(est.usd)}</span>
+                                    </>
+                                )}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                                {est.basis === "history" ? "from what this novel's chapters cost so far" : "a rough guess from the text length; it gets precise after a few chapters"}
+                            </div>
+                            {est.budgetUsd !== null && (
+                                <div className={cn("mt-1 text-xs", est.spentUsd + (est.usd ?? 0) > est.budgetUsd ? "text-destructive" : "text-muted-foreground")}>
+                                    Budget: {usd(est.spentUsd)} spent of {usd(est.budgetUsd)}
+                                    {est.spentUsd + (est.usd ?? 0) > est.budgetUsd && ": the run pauses when the budget is reached"}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
                 <DialogFooter>
                     <Button variant="ghost" onClick={() => onOpenChange(false)}>
                         Cancel
                     </Button>
-                    <Button
-                        disabled={pending}
-                        onClick={() =>
-                            onStart(kind === "range" ? { kind: "range", from: Number(from), to: Number(to), retranslate } : { kind })
-                        }
-                    >
+                    <Button disabled={pending} onClick={() => onStart(scope)}>
                         {pending ? <Loader2 className="animate-spin" /> : <Play />}
                         Start
                     </Button>

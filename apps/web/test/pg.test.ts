@@ -139,3 +139,21 @@ test("storage: a novel folder imports back with its glossary, decisions and tran
         await db.delete(schema.novel).where(eq(schema.novel.id, res.novelId));
     }
 });
+
+test("usage: cost from the price table, budgets stop a novel", { skip: !enabled }, async () => {
+    const { costOf } = await import("@/server/pricing");
+    const { budgetStop, spent } = await import("@/server/budget");
+    // 1M input of which 400k cached, 100k output at $4 / $0.20 / $20
+    assert.equal(costOf({ inputTokens: 1_000_000, cachedTokens: 400_000, outputTokens: 100_000 }, { input: 4, cachedInput: 0.2, output: 20 })!.toFixed(2), "4.48");
+    assert.equal(costOf({ inputTokens: 1, cachedTokens: 0, outputTokens: 1 }, undefined), null);
+
+    await db.insert(schema.usageRecord).values([
+        { novelId, novelTitle: "t", provider: "anthropic", model: "claude-opus-5-5", inputTokens: 1_000_000, cachedTokens: 0, outputTokens: 0 },
+        { novelId, novelTitle: "t", provider: "openai", model: "some-unpriced-model", inputTokens: 5_000_000, cachedTokens: 0, outputTokens: 0, ok: false },
+    ]);
+    const s = await spent(db, eq(schema.usageRecord.novelId, novelId));
+    assert.equal(s.usd, 4);
+    assert.deepEqual(s.unpriced, ["some-unpriced-model"]);
+    assert.equal(await budgetStop(db, { id: novelId, budgetUsd: 10 }, undefined), null);
+    assert.match((await budgetStop(db, { id: novelId, budgetUsd: 3 }, undefined))!, /budget reached: \$4\.00 spent of \$3\.00/);
+});

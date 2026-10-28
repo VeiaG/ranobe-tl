@@ -95,6 +95,16 @@
     --sidebar-accent-foreground: oklch(0.42 0.11 45);
     --sidebar-border: oklch(0.92 0.008 55);
     --sidebar-ring: oklch(0.75 0.12 50);
+    /* categorical series (validated: dataviz reference palette, fixed order) */
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --series-5: #e87ba4;
+    --series-6: #008300;
+    --series-7: #6250d6;
+    --series-8: #e34948;
+    --series-other: oklch(0.7 0.01 60);
 }
 
 .dark {
@@ -135,6 +145,15 @@
     --sidebar-accent-foreground: oklch(0.86 0.09 55);
     --sidebar-border: oklch(0.95 0.02 55 / 7%);
     --sidebar-ring: oklch(0.75 0.12 50);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+    --series-other: oklch(0.5 0.01 60);
 }
 
 @layer base {
