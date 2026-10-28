@@ -1,5 +1,5 @@
-import { normalizeTerm } from "./normalize.js";
-import type { Gender, GlossaryStore, TermType } from "./store.js";
+import { normalizeTerm } from "./normalize";
+import type { Gender, GlossaryStore, TermType } from "./store";
 
 export interface LegacyEntry {
     source: string;

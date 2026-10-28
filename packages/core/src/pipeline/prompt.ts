@@ -1,5 +1,5 @@
-import type { TranslationConfig as Config } from "../config.js";
-import { TERM_TYPES, Term, genderAt } from "../glossary/store.js";
+import type { TranslationConfig as Config } from "../config";
+import { TERM_TYPES, Term, genderAt } from "../glossary/store";
 
 /**
  * Static part of the prompt. It must not depend on the chapter so that

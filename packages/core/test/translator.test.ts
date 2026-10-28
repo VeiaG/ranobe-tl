@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MockLanguageModelV3 } from "ai/test";
-import { parseConfig } from "../src/config.js";
-import { Glossary } from "../src/glossary/glossary.js";
-import { MemoryGlossaryStore } from "../src/glossary/store.js";
-import { Translator, type TranslatorEvent } from "../src/pipeline/translator.js";
+import { parseConfig } from "../src/config";
+import { Glossary } from "../src/glossary/glossary";
+import { MemoryGlossaryStore } from "../src/glossary/store";
+import { Translator, type TranslatorEvent } from "../src/pipeline/translator";
 
 const setup = (model: MockLanguageModelV3) => ({ model, providerOptions: {}, systemProviderOptions: {} });
 

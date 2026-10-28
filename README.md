@@ -1,175 +1,102 @@
 # ranobe-tl
 
-[![npm](https://img.shields.io/npm/v/ranobe-tl)](https://www.npmjs.com/package/ranobe-tl)
-[![license](https://img.shields.io/npm/l/ranobe-tl)](LICENSE)
-[![node](https://img.shields.io/node/v/ranobe-tl)](https://nodejs.org)
+Self-hosted web app that translates web novels chapter by chapter with an LLM (OpenAI, Anthropic, Google or any OpenAI-compatible endpoint), keeping names and terms consistent through a glossary that grows as the translation goes.
 
-Translates web novels chapter by chapter with an LLM (OpenAI, Anthropic or Google), keeping names and terms consistent through a glossary that grows as the translation goes.
+![Dashboard](docs/dashboard.png)
 
-- **strictly sequential**: terms found in chapter N are already known in chapter N+1
-- **glossary in SQLite** (`glossary.db` in the novel folder); only terms that occur in the current chunk go into the prompt
-- **every chunk is validated** right after generation and retried with feedback: length ratio, untranslated text, repetition loops, leaked tags / JSON / glossary annotations, truncated output
-- **the model reports new terms** in a `<terms>` block, and code applies them by these rules:
-  - new term → added (spelling variants of an existing term are not added)
-  - gender unknown → m/f → applied retroactively
-  - gender m ↔ f → applied from this chapter only if the model quotes evidence that really exists in the source, otherwise asked about
-  - a different translation for an existing term → asked about
-  - a value you rejected once is not proposed again; locked terms never change
-- **glossary changes are decided during translation**: the run pauses after the chunk, asks about all its proposals at once, and translates the chunk again if you accepted any. Without a terminal (pm2, nohup) or with `--no-ask` they are queued for `glossary review` instead
-- **gender is stored per chapter** (`m@1 → f@840`), so re-translating old chapters keeps the old gender
+- **strictly sequential per novel, parallel across novels**: terms found in chapter N are known in chapter N+1, and several novels translate at the same time
+- **glossary per novel**: only terms that occur in the current chunk go into the prompt; gender is stored per chapter (`m@1 → f@840`)
+- **every chunk is validated** and retried with feedback: length ratio, untranslated text, repetition loops, leaked tags / JSON, lost paragraphs (summarized passages), truncated output
+- **the model reports new terms**; new ones are added on their own, changes to existing ones wait for you in **Decisions**
+- **two ways to handle those changes**, per novel: keep translating and decide later, or stop that novel until you decide (others keep running) and translate the chapter again with the answer
+- **Telegram bot** with buttons for decisions, plus failures and finished runs; long polling, so it works behind NAT
+- **reader** with the original side by side and glossary terms highlighted, hand edits, re-translation of the chapters that use a changed term
+- accounts: the first one is the admin, others join with invite links; API keys are stored encrypted
 
-## Install
+| | |
+|---|---|
+| ![Overview](docs/overview.png) | ![Reader](docs/reader.png) |
+| ![Decisions](docs/decisions.png) | ![Glossary](docs/glossary.png) |
 
-Requires Node.js 22.15 or newer.
+## Run it
 
-```sh
-pnpm add -g ranobe-tl
-# or run without installing: pnpm dlx ranobe-tl <command>
-```
-
-## Quick start
+Needs Docker. Works on a Raspberry Pi 4/5 (arm64): the model runs at the provider, the Pi only coordinates.
 
 ```sh
-mkdir my-novel && cd my-novel
-
-# get the source chapters, either:
-ranobe-tl lncrawl                  # list novels downloaded with the lightnovel-crawler GUI
-ranobe-tl lncrawl "returnee"       # unpack one into chapters/00001.txt ... and create novel.json
-# or put chapters/00001.txt ... here yourself and run:
-ranobe-tl init                     # create novel.json
-
-echo OPENAI_API_KEY=sk-... > .env  # or ANTHROPIC_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY
-
-ranobe-tl translate --only 1-3     # try a few chapters first
-ranobe-tl glossary list            # see what the model collected
-ranobe-tl translate                # the whole range from novel.json
+mkdir ranobe-tl && cd ranobe-tl
+curl -O https://raw.githubusercontent.com/VeiaG/ranobe-tl/main/compose.yml
+echo "APP_SECRET=$(openssl rand -base64 32)" > .env
+docker compose up -d
 ```
 
-Source files: `chapters/00001.txt`, first line is the chapter title.
-Output: `translation/00001.json` → `{ "content": "...", "title": "..." }`.
+Open http://localhost:3000, create the admin account, add an API key in **Settings → API keys**, create a novel and upload its chapters.
 
-`.env` is read from the novel folder, then from the current directory.
+To build the image yourself instead of pulling it: clone the repo and run `docker compose up -d --build`.
 
-## Commands
+### Configuration (`.env`)
 
-```
-ranobe-tl init
-ranobe-tl lncrawl [title|id] [--force] [--lncrawl-dir DIR]
-ranobe-tl translate [--from N] [--to N] [--only 1,5,10-12] [--force] [--retry-failed] [--no-ask]
-ranobe-tl check [--delete]
-ranobe-tl status
-ranobe-tl glossary <subcommand>
-```
+| variable | | |
+|---|---|---|
+| `APP_SECRET` | required | encrypts API keys and signs sessions; keep it, keys can't be read without it |
+| `APP_URL` | `http://localhost:3000` | public address: links in Telegram, auth cookies |
+| `TELEGRAM_BOT_TOKEN` | | bot from @BotFather; link your chat in **Settings → Telegram** |
+| `TELEGRAM_BOT_USERNAME` | | only if the web container can't reach api.telegram.org to look it up |
+| `WORKER_CONCURRENCY` | 2 | novels translated at the same time |
+| `TRUSTED_ORIGINS` | | extra origins allowed to sign in, comma-separated (e.g. a second domain) |
+| `POSTGRES_PASSWORD`, `PORT` | | |
 
-All commands work in the current directory; `--dir PATH` points them at another novel folder.
+The image runs as `web`, `worker`, or `all` (both in one container, for the smallest setups). `compose.yml` runs `web` and `worker` separately; `docker compose stop` lets the chapter in flight finish (up to 10 minutes).
 
-**translate** skips chapters that already have a translation unless `--force`. Chapters that fail validation after `maxAttempts` are recorded as failed; `--retry-failed` translates only those.
-Ctrl+C once finishes the current chapter and stops; twice aborts the request in flight (that chapter is not saved). The next run continues where it stopped.
-When the model proposes changing an existing term, translate asks right away: keep, use the proposal, type your own, or skip. Accepted changes make it translate that chunk once more, so the chapter uses the new term throughout. `--no-ask` queues the proposals instead (this also happens automatically when there is no terminal).
+Migrations run on start. Back up the `db` volume (`docker compose exec db pg_dump -U ranobe ranobe > backup.sql`).
 
-**Running in the background** (a server): use `--no-ask`, or run inside tmux to keep the prompts. With pm2:
+## Using it
 
-```sh
-cd my-novel
-pm2 start "$(pnpm root -g)/ranobe-tl/dist/cli.js" --name my-novel --no-autorestart --kill-timeout 600000 -- translate --no-ask
-pm2 logs my-novel
-```
+**Chapters**: upload `.txt` files (first line is the title, the number comes from the file name: `00012.txt`, `Chapter 12.txt`), a `.zip` of them, a JSON array (`[{ "index", "title", "content" }]`), or paste a long text and split it at "Chapter N" lines.
 
-`--no-autorestart` keeps pm2 from starting the run again after it finishes; `--kill-timeout` lets `pm2 stop` wait for the current chapter.
+**Translate** queues everything not translated yet, failed chapters, or a range (optionally translating done chapters again). **Pause** lets the chapter in flight finish; **Stop now** drops it. After 3 failed chapters in a row (a bad key, a dead endpoint) the run pauses itself.
 
-**check** audits existing translations with the same rules the translator uses. `--delete` removes the bad ones and marks them failed, so `translate --retry-failed` redoes them.
+**Glossary rules** (the same as the CLI had):
+- new term → added (spelling variants of an existing term are not)
+- gender unknown → m/f → applied retroactively
+- gender m ↔ f → applied from this chapter if the model quotes evidence that really exists in the source, otherwise it waits for a decision
+- a different translation of an existing term → waits for a decision
+- a value you rejected once is not proposed again; locked terms never change
 
-**status** shows done / failed / skipped chapters and the number of glossary changes waiting for review.
+When you change a term, the app offers to translate again the chapters whose source mentions it.
 
-**lncrawl** reads the data of the [lightnovel-crawler](https://github.com/lncrawl/lightnovel-crawler) GUI directly (read-only; it can stay open). It looks in `LNCRAWL_DATA_PATH`, `%APPDATA%\LNCrawl`, `~/.lncrawl`, or `--lncrawl-dir`. Existing chapter files are kept unless `--force`. When there is no `novel.json` yet, it creates one with the chapter range, title and synopsis.
+**Export**: a zip of `.txt`, a zip of `.json` (the CLI's `{ content, title }` format) or one `.txt` with everything; the glossary exports and imports as JSON (the CLI's old flat `{"term": "переклад (чоловік)"}` files import too).
 
-### glossary
-
-```
-glossary import [meta.json]          import an old flat {"term": "переклад (чоловік)"} memory file
-glossary export [file.json]          dump the glossary as JSON
-glossary list [query] [--type T]     list / search terms
-glossary show <term>                 term details and its change history
-glossary review                      go through queued changes interactively
-glossary changes [--all]             list queued changes (translation / gender)
-glossary accept <id...>              apply queued changes
-glossary reject <id...>
-glossary set <term> [--target X] [--type T] [--gender m|f|unknown --from N] [--note X]
-glossary lock <term> | unlock <term>
-glossary delete <term>
-```
-
-Term types: `person`, `place`, `organization`, `technique`, `item`, `rank`, `creature`, `other`.
+**Novel settings**: extra instructions for the prompt, fixed terms, reasoning effort, chunk size, cleanup strings/regexes and the validation thresholds (for a Latin-script target language set "Max Latin" to 100).
 
 ## Providers
 
-| `provider` | default `model` | API key variable |
+| provider | default model | |
 |---|---|---|
-| `openai` (default) | `gpt-6-luna` | `OPENAI_API_KEY` |
-| `anthropic` | `claude-opus-5-5` | `ANTHROPIC_API_KEY` |
-| `google` | none, set `model` | `GOOGLE_GENERATIVE_AI_API_KEY` |
+| OpenAI | `gpt-6-luna` | a base URL turns it into any OpenAI-compatible endpoint (OpenRouter, a local server) |
+| Anthropic | `claude-opus-5-5` | the system prompt is marked for prompt caching; current Claude models reject `temperature` |
+| Google | none, set the model | safety thresholds are set to `BLOCK_NONE`, otherwise fight scenes get chapters blocked |
 
-- `baseURL` points any provider at a compatible endpoint (proxy, OpenRouter, ...).
-- `effort` maps to OpenAI `reasoningEffort` and Anthropic `effort`; Google ignores it. Translation rarely needs much reasoning, so `low` is a good start.
-- **anthropic**: the system prompt is marked for prompt caching. Current Claude models reject `temperature`, leave it unset.
-- **google**: safety thresholds are set to `BLOCK_NONE`, otherwise fight scenes get whole chapters blocked. Blocks for prohibited content cannot be turned off.
-
-## novel.json
-
-Only `range` is required.
-
-| key | default | |
-|---|---|---|
-| `range` | | `{ "start": 1, "end": 360 }` |
-| `provider` | `openai` | `openai`, `anthropic`, `google` |
-| `model` | per provider | see above |
-| `apiKeyEnv` | per provider | name of the env variable with the key |
-| `baseURL` | | custom endpoint |
-| `effort` | | `low` … `max` |
-| `temperature` | | |
-| `maxOutputTokens` | 32000 | per request; a full chapter needs about 10–15k |
-| `sourceLanguage` / `targetLanguage` | English / Ukrainian | |
-| `novel` | | `{ "title", "synopsis" }`: background for the model (filled by `lncrawl`) |
-| `instructions` | | appended to the system prompt |
-| `fixedTerms` | `{}` | `{ "source": "translation" }`: always sent, never changed |
-| `stringsToRemove` | `[]` | exact strings cut from the source before translation |
-| `patternsToRemove` | translator/editor credit lines | regexes (flags `gim`) cut from the source; setting this replaces the default |
-| `chunkSize` | 8000 | max characters per request; longer chapters are split into equal parts on paragraphs. Long chunks make some models summarize passages instead of translating them |
-| `contextChars` | 1000 | tail of the previous chunk's translation sent for continuity |
-| `maxAttempts` | 3 | per chunk |
-| `validation.minRatio` / `maxRatio` | 0.8 / 1.15 | allowed translation / source length |
-| `validation.maxLatinPercent` | 3 | share of Latin letters in the output; set 100 for Latin-script targets |
-| `validation.maxRepeatSpan` | 200 | max characters of one phrase repeated back to back ("the the the …") |
-| `validation.maxParagraphLoss` | 0.1 | max share of source paragraphs that may disappear in a chunk (merged or summarized); compared from 20 paragraphs up |
-| `validation.minSourceChars` | 1000 | shorter sources are skipped |
-| `debug.savePrompts` | false | save every prompt and raw response to `debug.folder` |
-| `debug.folder` | `debug` | |
-| `inputFolder` / `outputFolder` | `chapters` / `translation` | |
-| `glossaryFile` | `glossary.db` | |
-| `filePad` | 5 | digits in chapter file names |
-
-Before translation the source is also cleaned automatically: a title repeated on the next line (also without the "Chapter N" prefix) is dropped, extra blank lines are collapsed.
-
-Example:
-
-```json
-{
-    "range": { "start": 1, "end": 360 },
-    "provider": "anthropic",
-    "effort": "low",
-    "patternsToRemove": ["^Translate to$", "^(Previous|Next)$"],
-    "novel": { "title": "Everyone Else Is A Returnee", "synopsis": "..." }
-}
-```
+`effort` maps to OpenAI `reasoningEffort` and Anthropic `effort`; translation rarely needs much, `low` is a good start.
 
 ## Development
 
+```
+packages/core   translation pipeline: chunking, prompts, validation, glossary rules (no I/O)
+apps/web        Next.js app, Drizzle schema, pg-boss worker, Telegram bot
+```
+
 ```sh
 pnpm install
-pnpm test
-pnpm dev translate --dir ../my-novel   # run from source
-pnpm build
+cp .env.example apps/web/.env.local   # set DATABASE_URL and APP_SECRET
+pnpm --filter @ranobe-tl/web db:migrate
+pnpm dev              # http://localhost:3000
+pnpm dev:worker       # in a second terminal
+pnpm test             # web tests that need Postgres run when DATABASE_URL is set
 ```
+
+Schema changes: edit `apps/web/src/db/schema.ts`, then `pnpm --filter @ranobe-tl/web db:generate`.
+
+The command-line version (`ranobe-tl` on npm, v0.1.x) is at commit [`ae61c18`](https://github.com/VeiaG/ranobe-tl/tree/ae61c18).
 
 ## License
 

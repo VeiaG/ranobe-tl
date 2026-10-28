@@ -1,4 +1,4 @@
-import { normalizeTerm } from "./normalize.js";
+import { normalizeTerm } from "./normalize";
 
 export type Gender = "m" | "f" | "unknown";
 export const TERM_TYPES = ["person", "place", "organization", "technique", "item", "rank", "creature", "other"] as const;

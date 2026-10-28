@@ -1,11 +1,11 @@
 import { generateText } from "ai";
-import type { TranslationConfig } from "../config.js";
-import type { Glossary, PendingOutcome, ProposalOutcome } from "../glossary/glossary.js";
-import { checkSource, chunkText, cleanSource } from "./preprocess.js";
-import { parseOutput } from "./parse.js";
-import { systemPrompt, userPrompt } from "./prompt.js";
-import { validateTranslation } from "./validate.js";
-import type { ModelSetup } from "../providers.js";
+import type { TranslationConfig } from "../config";
+import type { Glossary, PendingOutcome, ProposalOutcome } from "../glossary/glossary";
+import { checkSource, chunkText, cleanSource } from "./preprocess";
+import { parseOutput } from "./parse";
+import { systemPrompt, userPrompt } from "./prompt";
+import { validateTranslation } from "./validate";
+import type { ModelSetup } from "../providers";
 
 export interface Usage {
     input: number;

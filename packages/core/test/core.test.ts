@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Glossary, evidenceFound } from "../src/glossary/glossary.js";
-import { importLegacy, parseLegacyValue } from "../src/glossary/importLegacy.js";
-import { TermMatcher } from "../src/glossary/match.js";
-import { MemoryGlossaryStore, genderAt } from "../src/glossary/store.js";
-import { chunkText, cleanSource, dedupeTitle } from "../src/pipeline/preprocess.js";
-import { parseOutput } from "../src/pipeline/parse.js";
-import { validateTranslation } from "../src/pipeline/validate.js";
-import type { TranslationConfig as Config } from "../src/config.js";
+import { Glossary, evidenceFound } from "../src/glossary/glossary";
+import { importLegacy, parseLegacyValue } from "../src/glossary/importLegacy";
+import { TermMatcher } from "../src/glossary/match";
+import { MemoryGlossaryStore, genderAt } from "../src/glossary/store";
+import { chunkText, cleanSource, dedupeTitle } from "../src/pipeline/preprocess";
+import { parseOutput } from "../src/pipeline/parse";
+import { validateTranslation } from "../src/pipeline/validate";
+import type { TranslationConfig as Config } from "../src/config";
 
 const config = {
     sourceLanguage: "English",

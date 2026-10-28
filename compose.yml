@@ -1,0 +1,48 @@
+# docker compose up -d   →   http://localhost:3000
+# Set APP_SECRET (and optionally TELEGRAM_BOT_TOKEN, APP_URL) in .env next to this file.
+name: ranobe-tl
+
+x-app: &app
+    image: ghcr.io/veiag/ranobe-tl:latest
+    build: .
+    restart: unless-stopped
+    environment:
+        DATABASE_URL: postgres://ranobe:${POSTGRES_PASSWORD:-ranobe}@db:5432/ranobe
+        APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env (openssl rand -base64 32)}
+        APP_URL: ${APP_URL:-http://localhost:3000}
+        TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+        WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+    depends_on:
+        db:
+            condition: service_healthy
+
+services:
+    web:
+        <<: *app
+        command: web
+        ports:
+            - "${PORT:-3000}:3000"
+
+    worker:
+        <<: *app
+        command: worker
+        # a chapter in flight gets up to 10 minutes to finish on "docker compose stop"
+        stop_grace_period: 10m
+
+    db:
+        image: postgres:17-alpine
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: ranobe
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ranobe}
+            POSTGRES_DB: ranobe
+        volumes:
+            - db:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ranobe -d ranobe"]
+            interval: 5s
+            timeout: 3s
+            retries: 20
+
+volumes:
+    db:

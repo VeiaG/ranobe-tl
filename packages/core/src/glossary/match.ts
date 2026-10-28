@@ -1,4 +1,4 @@
-import { normalizeTerm } from "./normalize.js";
+import { normalizeTerm } from "./normalize";
 
 const WORD_RE = /[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu;
 

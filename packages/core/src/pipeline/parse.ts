@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { TERM_TYPES } from "../glossary/store.js";
-import type { ProposedTerm } from "../glossary/glossary.js";
+import { TERM_TYPES } from "../glossary/store";
+import type { ProposedTerm } from "../glossary/glossary";
 
 export interface ParsedOutput {
     title?: string;

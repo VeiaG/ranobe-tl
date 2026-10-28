@@ -1,4 +1,4 @@
-import type { TranslationConfig as Config } from "../config.js";
+import type { TranslationConfig as Config } from "../config";
 
 export interface SourceCheck {
     ok: boolean;

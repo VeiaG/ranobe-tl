@@ -1,6 +1,6 @@
-import { TermMatcher } from "./match.js";
-import { levenshtein, looseKey, normalizeTerm } from "./normalize.js";
-import { Gender, GlossaryStore, Term, TermType, genderAt } from "./store.js";
+import { TermMatcher } from "./match";
+import { levenshtein, looseKey, normalizeTerm } from "./normalize";
+import { Gender, GlossaryStore, Term, TermType, genderAt } from "./store";
 
 export interface ProposedTerm {
     source: string;

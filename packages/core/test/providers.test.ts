@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MockLanguageModelV3 } from "ai/test";
-import { parseConfig, type TranslationConfig as Config } from "../src/config.js";
-import { Glossary } from "../src/glossary/glossary.js";
-import { MemoryGlossaryStore } from "../src/glossary/store.js";
-import { Translator } from "../src/pipeline/translator.js";
-import { createModel, resolveModelId } from "../src/providers.js";
+import { parseConfig, type TranslationConfig as Config } from "../src/config";
+import { Glossary } from "../src/glossary/glossary";
+import { MemoryGlossaryStore } from "../src/glossary/store";
+import { Translator } from "../src/pipeline/translator";
+import { createModel, resolveModelId } from "../src/providers";
 
 const base = { baseURL: undefined } as Partial<Config>;
 

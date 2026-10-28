@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PROVIDERS } from "./providers.js";
+import { PROVIDERS } from "./providers";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
