@@ -4,39 +4,79 @@ import { runMigrations } from "@/db/migrate";
 import { novel } from "@/db/schema";
 import { SYNC_ALL_QUEUE, SYNC_NOVEL_QUEUE, TRANSLATE_QUEUE, enqueueNovel, getBoss, type TranslateJob } from "@/server/queue";
 import { runSync } from "@/server/storage/sync";
-import { combine, silentNotifier, type Notifier } from "./notify";
+import { instanceConfig, telegramToken } from "@/server/instance";
+import { combine, type Notifier } from "./notify";
 import { translateNext } from "./run";
 import { createTelegram } from "./telegram";
 
-/** How many novels translate at the same time on this worker. */
-const CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 2));
+/**
+ * Job slots of this worker. The real limit of novels translating at once is set in
+ * Settings → Instance (and per API key) and checked for every chapter, so it changes without a restart.
+ */
+const SLOTS = Math.max(1, Number(process.env.WORKER_SLOTS ?? 8));
+/** How long a novel waits before trying again when every slot is busy. */
+const DEFER_SECONDS = 15;
+/** How often the worker checks whether the bot token was changed in the UI. */
+const TOKEN_CHECK_MS = 30_000;
+
+/** Runs the Telegram bot for the current token and restarts it when the token changes. */
+function telegramController() {
+    let current: { token: string; notifier: Notifier; stop: () => Promise<void> } | null = null;
+
+    async function apply(token: string | null) {
+        if (token === (current?.token ?? null)) return;
+        if (current) {
+            await current.stop().catch(() => {});
+            current = null;
+            console.log("[telegram] bot stopped");
+        }
+        if (!token) {
+            console.log("[telegram] no bot token (Settings → Telegram or TELEGRAM_BOT_TOKEN), notifications are off");
+            return;
+        }
+        const telegram = createTelegram(db, token);
+        // long polling: no public URL needed, works behind NAT (a Raspberry Pi at home)
+        telegram.bot
+            .start({ drop_pending_updates: false, onStart: (me) => console.log(`[telegram] @${me.username} is listening`) })
+            .catch((error) => console.error("[telegram] bot stopped:", error));
+        current = { token, notifier: telegram.notifier, stop: () => telegram.bot.stop() };
+    }
+
+    // the run keeps one notifier; it forwards to whichever bot is live
+    const relay = (name: keyof Notifier) => async (...args: any[]) => {
+        if (current) await (current.notifier[name] as (...a: any[]) => Promise<void>)(...args);
+    };
+    const notifier: Notifier = combine({
+        decisionsNeeded: relay("decisionsNeeded"),
+        chapterFailed: relay("chapterFailed"),
+        runHalted: relay("runHalted"),
+        finished: relay("finished"),
+    });
+    return { notifier, apply, stop: () => current?.stop() ?? Promise.resolve() };
+}
 
 async function main() {
     if (process.env.SKIP_MIGRATIONS !== "1") await runMigrations();
 
-    let notifier: Notifier = silentNotifier;
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    let stopBot = async () => {};
-    if (token) {
-        const telegram = createTelegram(db, token);
-        notifier = combine(telegram.notifier);
-        // long polling: no public URL needed, works behind NAT (a Raspberry Pi at home)
-        telegram.bot
-            .start({
-                drop_pending_updates: false,
-                onStart: (me) => console.log(`[telegram] @${me.username} is listening`),
-            })
-            .catch((error) => console.error("[telegram] bot stopped:", error));
-        stopBot = () => telegram.bot.stop();
-    } else {
-        console.log("[telegram] TELEGRAM_BOT_TOKEN is not set, notifications are off");
-    }
+    const telegram = telegramController();
+    await telegram.apply(await telegramToken(db));
+    const tokenTimer = setInterval(() => {
+        telegramToken(db)
+            .then((t) => telegram.apply(t))
+            .catch((error) => console.error("[telegram] token check failed:", error));
+    }, TOKEN_CHECK_MS);
+    const notifier = telegram.notifier;
+    const stopBot = async () => {
+        clearInterval(tokenTimer);
+        await telegram.stop();
+    };
 
     const boss = await getBoss("worker");
-    await boss.work<TranslateJob>(TRANSLATE_QUEUE, { localConcurrency: CONCURRENCY, pollingIntervalSeconds: 2 }, async ([job]) => {
+    await boss.work<TranslateJob>(TRANSLATE_QUEUE, { localConcurrency: SLOTS, pollingIntervalSeconds: 2 }, async ([job]) => {
         const { novelId } = job.data;
         const outcome = await translateNext(db, novelId, notifier);
         if (outcome === "next") await enqueueNovel(novelId, "worker");
+        if (outcome === "defer") await enqueueNovel(novelId, "worker", DEFER_SECONDS);
     });
 
     await boss.work<TranslateJob>(SYNC_NOVEL_QUEUE, async ([job]) => {
@@ -55,7 +95,8 @@ async function main() {
         .where(and(inArray(novel.status, ["running"]), eq(novel.stopRequested, false)));
     for (const n of running) await enqueueNovel(n.id, "worker");
 
-    console.log(`[worker] ready: ${CONCURRENCY} novels in parallel${running.length ? `, resumed ${running.length}` : ""}`);
+    const { concurrency } = await instanceConfig(db);
+    console.log(`[worker] ready: up to ${concurrency} novels in parallel (${SLOTS} slots here)${running.length ? `, resumed ${running.length}` : ""}`);
 
     const shutdown = async (signal: string) => {
         console.log(`[worker] ${signal}: finishing the chapters in flight…`);

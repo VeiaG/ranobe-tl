@@ -11,6 +11,8 @@ import { listKeys } from "@/server/queries";
 import { getSetting } from "@/server/settings";
 import { STORAGE_STATUS_DEFAULTS, STORAGE_STATUS_KEY, storageConfig } from "@/server/storage/client";
 import { StoragePanel } from "@/components/settings/storage-panel";
+import { InstancePanel } from "@/components/settings/instance-panel";
+import { TELEGRAM_KEY, instanceConfig, telegramToken } from "@/server/instance";
 import { requireUser } from "@/server/session";
 import { botUsername } from "@/server/telegram-info";
 
@@ -20,13 +22,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     const me = await requireUser();
     const isAdmin = me.role === "admin";
     const { tab: rawTab } = await searchParams;
-    const tab = ["keys", "telegram", "storage", "users"].includes(rawTab ?? "") && (rawTab !== "users" || isAdmin) ? rawTab! : "keys";
+    const tab = ["keys", "telegram", "storage", "instance", "users"].includes(rawTab ?? "") && (!["users", "instance"].includes(rawTab ?? "") || isAdmin) ? rawTab! : "keys";
 
     let content: React.ReactNode;
     if (tab === "keys") {
         const keys = await listKeys();
         const month = await Promise.all(keys.map((k) => spent(db, and(eq(usageRecord.keyId, k.id), gte(usageRecord.createdAt, monthStart())))));
         content = <KeysPanel keys={keys.map((k, i) => ({ ...k, createdAt: k.createdAt.toISOString(), spentThisMonth: month[i].usd }))} isAdmin={isAdmin} />;
+    } else if (tab === "instance") {
+        const [config, keys] = await Promise.all([instanceConfig(db), listKeys()]);
+        content = <InstancePanel config={config} keys={keys.map((k) => ({ id: k.id, name: k.name, provider: k.provider, hint: k.hint }))} isAdmin={isAdmin} />;
     } else if (tab === "storage") {
         const [config, status] = await Promise.all([storageConfig(db), getSetting(db, STORAGE_STATUS_KEY, STORAGE_STATUS_DEFAULTS)]);
         const { secretEncrypted, ...rest } = config;
@@ -35,7 +40,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         const [link] = await db.select().from(telegramLink).where(eq(telegramLink.userId, me.id));
         content = (
             <TelegramPanel
-                configured={!!process.env.TELEGRAM_BOT_TOKEN}
+                configured={!!(await telegramToken(db))}
+                tokenSource={(await getSetting<{ tokenEncrypted?: string }>(db, TELEGRAM_KEY, {})).tokenEncrypted ? "ui" : process.env.TELEGRAM_BOT_TOKEN ? "env" : null}
+                isAdmin={isAdmin}
                 bot={await botUsername()}
                 link={
                     link

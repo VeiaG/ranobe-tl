@@ -6,6 +6,7 @@ import { chapter, exchange, novel, providerKey, termChange, usageRecord } from "
 import { decrypt } from "@/lib/crypto";
 import { logEvent } from "@/server/activity";
 import { budgetStop } from "@/server/budget";
+import { claimSlot } from "@/server/instance";
 import { PgGlossaryStore } from "@/server/glossary-store";
 import { novelConfig } from "@/server/novel-config";
 import { requestSync } from "@/server/queue";
@@ -16,7 +17,8 @@ const MAX_FAIL_STREAK = 3;
 /** How often the run checks whether the user asked to stop the chapter in flight. */
 const STOP_POLL_MS = 2000;
 
-export type StepOutcome = "next" | "stop";
+/** "defer": no free slot now, try the same novel again in a moment. */
+export type StepOutcome = "next" | "stop" | "defer";
 
 /**
  * Translates the next queued chapter of a novel. Returns "next" when the novel should go on
@@ -55,7 +57,11 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
     const overBudget = await budgetStop(db, n, key);
     if (overBudget) return halt(db, n, notifier, overBudget);
 
-    await db.update(chapter).set({ status: "translating", error: "" }).where(eq(chapter.id, ch.id));
+    const slot = await claimSlot(db, ch.id, novelId, key);
+    if (!slot.ok) {
+        await db.update(novel).set({ statusMessage: slot.reason.charAt(0).toUpperCase() + slot.reason.slice(1) }).where(eq(novel.id, novelId));
+        return "defer";
+    }
     await db.update(novel).set({ statusMessage: `Translating chapter ${ch.index}` }).where(eq(novel.id, novelId));
     await db.delete(exchange).where(and(eq(exchange.novelId, novelId), eq(exchange.chapter, ch.index)));
 

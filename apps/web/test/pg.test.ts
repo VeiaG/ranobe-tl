@@ -157,3 +157,37 @@ test("usage: cost from the price table, budgets stop a novel", { skip: !enabled 
     assert.equal(await budgetStop(db, { id: novelId, budgetUsd: 10 }, undefined), null);
     assert.match((await budgetStop(db, { id: novelId, budgetUsd: 3 }, undefined))!, /budget reached: \$4\.00 spent of \$3\.00/);
 });
+
+test("instance: slots respect the global and the per-key limits", { skip: !enabled }, async () => {
+    const { claimSlot, INSTANCE_KEY } = await import("@/server/instance");
+    const { setSetting } = await import("@/server/settings");
+    const [key] = await db.insert(schema.providerKey).values({ name: "slot-test", provider: "openai", encryptedKey: "x", hint: "x" }).returning();
+    const novels = await db
+        .insert(schema.novel)
+        .values([1, 2, 3].map((i) => ({ title: `slots ${i}`, status: "running" as const, providerKeyId: key.id })))
+        .returning();
+    const chapters = await db
+        .insert(schema.chapter)
+        .values(novels.map((n) => ({ novelId: n.id, index: 1, source: "x", status: "queued" as const })))
+        .returning();
+    try {
+        await setSetting(db, INSTANCE_KEY, { concurrency: 2 });
+        const k = { id: key.id, name: key.name, maxParallel: null };
+        const others = await db.select({ n: schema.chapter.id }).from(schema.chapter).where(eq(schema.chapter.status, "translating"));
+        assert.equal(others.length, 0, "no other chapter in flight during the test");
+        assert.equal((await claimSlot(db, chapters[0].id, novels[0].id, k)).ok, true);
+        assert.equal((await claimSlot(db, chapters[1].id, novels[1].id, k)).ok, true);
+        const third = await claimSlot(db, chapters[2].id, novels[2].id, k);
+        assert.equal(third.ok, false);
+        if (!third.ok) assert.match(third.reason, /2 of 2 busy/);
+
+        await setSetting(db, INSTANCE_KEY, { concurrency: 5 });
+        const limited = await claimSlot(db, chapters[2].id, novels[2].id, { ...k, maxParallel: 2 });
+        assert.equal(limited.ok, false);
+        if (!limited.ok) assert.match(limited.reason, /key "slot-test" \(2 of 2 busy\)/);
+    } finally {
+        await setSetting(db, INSTANCE_KEY, {});
+        for (const n of novels) await db.delete(schema.novel).where(eq(schema.novel.id, n.id));
+        await db.delete(schema.providerKey).where(eq(schema.providerKey.id, key.id));
+    }
+});

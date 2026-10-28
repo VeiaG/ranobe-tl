@@ -51,9 +51,9 @@ export function getBoss(role: "web" | "worker" = "web"): Promise<PgBoss> {
     return globalForBoss.boss;
 }
 
-export async function enqueueNovel(novelId: number, role: "web" | "worker" = "web"): Promise<void> {
+export async function enqueueNovel(novelId: number, role: "web" | "worker" = "web", delaySeconds = 0): Promise<void> {
     const boss = await getBoss(role);
-    await boss.send(TRANSLATE_QUEUE, { novelId } satisfies TranslateJob, { singletonKey: String(novelId) });
+    await boss.send(TRANSLATE_QUEUE, { novelId } satisfies TranslateJob, { singletonKey: String(novelId), ...(delaySeconds ? { startAfter: delaySeconds } : {}) });
 }
 
 /** Asks for a backup upload of the novel soon, if a bucket is set up. Never throws: a backup must not break an edit. */

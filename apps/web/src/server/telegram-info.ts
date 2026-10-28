@@ -1,11 +1,13 @@
 import "server-only";
+import { db } from "@/db";
+import { telegramToken } from "./instance";
 
 let cached: { username: string | null; at: number } | undefined;
 
 /** The bot's @username for t.me links: TELEGRAM_BOT_USERNAME, else asked from Telegram once an hour. */
 export async function botUsername(): Promise<string | null> {
     if (process.env.TELEGRAM_BOT_USERNAME) return process.env.TELEGRAM_BOT_USERNAME.replace(/^@/, "");
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = await telegramToken(db);
     if (!token) return null;
     if (cached && Date.now() - cached.at < 3600_000) return cached.username;
     try {

@@ -14,6 +14,7 @@ Self-hosted web app that translates web novels chapter by chapter with an LLM (O
 - **reader** with the original side by side and glossary terms highlighted, hand edits, re-translation of the chapters that use a changed term
 - **usage and costs**: every request is recorded (novel, chapter, key, model, tokens, whether validation rejected it); the Usage page shows daily spend by model, cost per chapter and what retries wasted, filtered by novel, provider, model or key. Costs come from an editable price table (Claude list prices built in), so the estimate before a run and the history stay in sync with it
 - **budgets**: a total per novel and a monthly one per API key; a run pauses when it reaches either
+- **instance settings** without restarts: how many novels translate at once, a limit per API key (rate limits, a local server), defaults for new novels, the Telegram bot token
 - **backups as plain folders** in an S3-compatible bucket (R2, B2, MinIO, S3): translations, glossary and settings in the CLI's layout, uploaded incrementally; any folder (a backup, an export, an old CLI novel folder) imports back as a novel
 - accounts: the first one is the admin, others join with invite links; API keys are stored encrypted
 
@@ -43,9 +44,10 @@ To build the image yourself instead of pulling it: clone the repo and run `docke
 |---|---|---|
 | `APP_SECRET` | required | encrypts API keys and signs sessions; keep it, keys can't be read without it |
 | `APP_URL` | `http://localhost:3000` | public address: links in Telegram, auth cookies |
-| `TELEGRAM_BOT_TOKEN` | | bot from @BotFather; link your chat in **Settings → Telegram** |
+| `TELEGRAM_BOT_TOKEN` | | bot from @BotFather; can also be set in **Settings → Telegram** (that one wins), then link your chat there |
 | `TELEGRAM_BOT_USERNAME` | | only if the web container can't reach api.telegram.org to look it up |
-| `WORKER_CONCURRENCY` | 2 | novels translated at the same time |
+| `WORKER_CONCURRENCY` | 2 | novels translated at the same time, until changed in Settings → Instance |
+| `WORKER_SLOTS` | 8 | the most a single worker can run at once; the real limit is the instance setting |
 | `TRUSTED_ORIGINS` | | extra origins allowed to sign in, comma-separated (e.g. a second domain) |
 | `BACKUP_CRON` | `17 3 * * *` | when the nightly backup check runs (see Backups) |
 | `TZ` | UTC | time zone of `BACKUP_CRON` |

@@ -122,6 +122,8 @@ export const providerKey = pgTable("provider_key", {
     hint: text("hint").notNull(),
     /** Spending cap per calendar month (UTC), USD; runs using this key pause when it is reached. */
     monthlyBudgetUsd: doublePrecision("monthly_budget_usd"),
+    /** How many novels may translate with this key at the same time (rate limits); null = no limit of its own. */
+    maxParallel: integer("max_parallel"),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: createdAt(),
 });

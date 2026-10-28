@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { HardDrive, KeyRound, Send, Users } from "lucide-react";
+import { HardDrive, KeyRound, Send, SlidersHorizontal, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function SettingsTabs({ tab, isAdmin }: { tab: string; isAdmin: boolean }) {
@@ -7,6 +7,7 @@ export function SettingsTabs({ tab, isAdmin }: { tab: string; isAdmin: boolean }
         { key: "keys", label: "API keys", icon: KeyRound },
         { key: "telegram", label: "Telegram", icon: Send },
         { key: "storage", label: "Storage", icon: HardDrive },
+        ...(isAdmin ? [{ key: "instance", label: "Instance", icon: SlidersHorizontal }] : []),
         ...(isAdmin ? [{ key: "users", label: "Users", icon: Users }] : []),
     ];
     return (

@@ -1,12 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Bell, CheckCircle2, Copy, ExternalLink, Loader2, Send, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { timeAgo } from "@/lib/utils";
+import { saveTelegramToken } from "@/server/actions/instance";
 import { createTelegramLink, setTelegramNotifications, unlinkTelegram } from "@/server/actions/users";
 
 interface Link {
@@ -19,7 +21,70 @@ interface Link {
     linkedAt: string | null;
 }
 
-export function TelegramPanel({ configured, bot, link }: { configured: boolean; bot: string | null; link: Link | null }) {
+/** Where an admin sets or replaces the bot token, instead of TELEGRAM_BOT_TOKEN in .env. */
+function TokenForm({ source }: { source: "ui" | "env" | null }) {
+    const router = useRouter();
+    const [token, setToken] = useState("");
+    const [pending, start] = useTransition();
+    const save = (value: string) =>
+        start(async () => {
+            const res = await saveTelegramToken(value);
+            if (!res.ok) return void toast.error(res.error);
+            toast.success(res.message ?? "Saved");
+            setToken("");
+            router.refresh();
+        });
+    return (
+        <form
+            className="grid gap-2"
+            onSubmit={(e) => {
+                e.preventDefault();
+                save(token);
+            }}
+        >
+            <div className="flex gap-2">
+                <Input
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    type="password"
+                    autoComplete="off"
+                    placeholder={source ? "New token to replace the current one" : "123456789:AA…"}
+                    className="font-mono text-sm"
+                />
+                <Button type="submit" disabled={pending || !token.trim()}>
+                    {pending && <Loader2 className="animate-spin" />}
+                    Save token
+                </Button>
+                {source === "ui" && (
+                    <Button type="button" variant="ghost" disabled={pending} onClick={() => save("")}>
+                        Remove
+                    </Button>
+                )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+                {source === "ui"
+                    ? "The bot uses the token saved here (encrypted with APP_SECRET)."
+                    : source === "env"
+                      ? "The bot uses TELEGRAM_BOT_TOKEN from the environment; a token saved here takes over."
+                      : "Stored encrypted with APP_SECRET. The worker starts the bot within half a minute, no restart needed."}
+            </p>
+        </form>
+    );
+}
+
+export function TelegramPanel({
+    configured,
+    bot,
+    link,
+    tokenSource,
+    isAdmin,
+}: {
+    configured: boolean;
+    bot: string | null;
+    link: Link | null;
+    tokenSource: "ui" | "env" | null;
+    isAdmin: boolean;
+}) {
     const router = useRouter();
     const [pending, start] = useTransition();
 
@@ -46,11 +111,10 @@ export function TelegramPanel({ configured, bot, link }: { configured: boolean; 
                             <li>
                                 Create a bot with <span className="font-medium text-foreground">@BotFather</span> and copy its token.
                             </li>
-                            <li>
-                                Set <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">TELEGRAM_BOT_TOKEN</code> for the worker (and the web app, for the link button) and restart.
-                            </li>
-                            <li>Come back here to link your chat.</li>
+                            <li>{isAdmin ? "Paste it below." : "Ask the admin to add it here."}</li>
+                            <li>Link your chat with the button that appears.</li>
                         </ol>
+                        {isAdmin && <TokenForm source={tokenSource} />}
                     </div>
                 </div>
             </div>
@@ -145,6 +209,14 @@ export function TelegramPanel({ configured, bot, link }: { configured: boolean; 
                     </div>
                 )}
             </div>
+            {isAdmin && (
+                <details className="rounded-xl border bg-card px-5 py-3 text-sm shadow-xs">
+                    <summary className="cursor-pointer text-muted-foreground">Bot token{bot ? ` · @${bot}` : ""}</summary>
+                    <div className="mt-3">
+                        <TokenForm source={tokenSource} />
+                    </div>
+                </details>
+            )}
             {link?.linked && (
                 <div className="rounded-xl border bg-card shadow-xs">
                     <div className="flex items-center gap-2 border-b px-5 py-3 text-sm font-medium">

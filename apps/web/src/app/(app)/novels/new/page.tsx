@@ -3,12 +3,14 @@ import { FolderInput } from "lucide-react";
 import { NovelForm } from "@/components/novel/novel-form";
 import { Button } from "@/components/ui/button";
 import { Page, PageHeader } from "@/components/page-header";
+import { db } from "@/db";
+import { instanceConfig } from "@/server/instance";
 import { listKeys } from "@/server/queries";
 
 export const metadata = { title: "New novel" };
 
 export default async function NewNovelPage() {
-    const keys = await listKeys();
+    const [keys, { defaults }] = await Promise.all([listKeys(), instanceConfig(db)]);
     return (
         <Page className="max-w-3xl">
             <PageHeader
@@ -22,7 +24,17 @@ export default async function NewNovelPage() {
                 }
             />
             <div className="mt-8 rounded-xl border bg-card p-6 shadow-xs">
-                <NovelForm keys={keys} />
+                <NovelForm
+                    keys={keys}
+                    initial={{
+                        sourceLanguage: defaults.sourceLanguage,
+                        targetLanguage: defaults.targetLanguage,
+                        providerKeyId: defaults.providerKeyId,
+                        model: defaults.model,
+                        decisionMode: defaults.decisionMode,
+                        askNew: defaults.askNew,
+                    }}
+                />
             </div>
         </Page>
     );

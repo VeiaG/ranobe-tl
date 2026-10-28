@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn, timeAgo } from "@/lib/utils";
+import { setKeyParallel } from "@/server/actions/instance";
 import { addKey, deleteKey, setKeyBudget, testKey } from "@/server/actions/keys";
 
 interface KeyRow {
@@ -24,7 +25,41 @@ interface KeyRow {
     createdAt: string;
     novels: number;
     monthlyBudgetUsd: number | null;
+    maxParallel: number | null;
     spentThisMonth: number;
+}
+
+/** How many novels may use the key at once; click to change. */
+function KeyParallel({ k, isAdmin }: { k: KeyRow; isAdmin: boolean }) {
+    const router = useRouter();
+    const [, start] = useTransition();
+    const options = ["any", "1", "2", "3", "4", "6", "8"];
+    return (
+        <Select
+            value={k.maxParallel ? String(k.maxParallel) : "any"}
+            disabled={!isAdmin}
+            onValueChange={(v) =>
+                v &&
+                start(async () => {
+                    const res = await setKeyParallel(k.id, v === "any" ? null : Number(v));
+                    if (!res.ok) toast.error(res.error);
+                    router.refresh();
+                })
+            }
+            items={Object.fromEntries(options.map((o) => [o, o === "any" ? "no own limit" : `${o} at once`]))}
+        >
+            <SelectTrigger size="sm" className="h-7 text-xs" title="Novels using this key at the same time">
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+                {options.map((o) => (
+                    <SelectItem key={o} value={o}>
+                        {o === "any" ? "no own limit" : `${o} at once`}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+    );
 }
 
 function usd(n: number) {
@@ -126,6 +161,7 @@ export function KeysPanel({ keys, isAdmin }: { keys: KeyRow[]; isAdmin: boolean 
                                 </div>
                             </div>
                             <KeyBudget k={k} isAdmin={isAdmin} />
+                            <KeyParallel k={k} isAdmin={isAdmin} />
                             <Badge variant="muted">{k.novels === 1 ? "1 novel" : `${k.novels} novels`}</Badge>
                             <Button variant="outline" size="sm" onClick={() => test(k.id)} disabled={busy === k.id}>
                                 {busy === k.id ? <Loader2 className="animate-spin" /> : <Zap />}
