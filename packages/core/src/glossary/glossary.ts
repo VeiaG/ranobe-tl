@@ -31,8 +31,8 @@ export class Glossary {
     private matcher = new TermMatcher<number>();
     private fixed: Term[];
 
-    constructor(private store: GlossaryStore, fixedTerms: Record<string, string> = {}) {
-        for (const t of store.allTerms()) this.index(t);
+    private constructor(private store: GlossaryStore, terms: Term[], fixedTerms: Record<string, string>) {
+        for (const t of terms) this.index(t);
         this.fixed = Object.entries(fixedTerms).map(([source, target], i) => ({
             id: -1 - i,
             source,
@@ -43,6 +43,10 @@ export class Glossary {
             firstChapter: null,
             genders: [],
         }));
+    }
+
+    static async load(store: GlossaryStore, fixedTerms: Record<string, string> = {}): Promise<Glossary> {
+        return new Glossary(store, await store.allTerms(), fixedTerms);
     }
 
     get size(): number {
@@ -76,14 +80,14 @@ export class Glossary {
      * - different translation: never applied automatically, goes to the pending queue (rejected if locked)
  * - a value rejected once is not queued again
      */
-    propose(p: ProposedTerm, chapter: number, sourceText: string): ProposalOutcome[] {
-        const existing = this.store.findTerm(p.source);
+    async propose(p: ProposedTerm, chapter: number, sourceText: string): Promise<ProposalOutcome[]> {
+        const existing = await this.store.findTerm(p.source);
         if (!existing) {
             // Same term spelled differently (plural, hyphen, possessive) → don't add a duplicate.
             const variants = this.findSimilar(p.source).filter((t) => looseKey(t.source) === looseKey(p.source));
             if (variants.length) return [{ kind: "similar", proposed: p, similar: variants }];
             const lookalikes = this.findSimilar(p.source);
-            const term = this.store.insertTerm({
+            const term = await this.store.insertTerm({
                 source: p.source.trim(),
                 target: p.target.trim(),
                 type: p.type,
@@ -99,32 +103,32 @@ export class Glossary {
 
         // A difference only in letter case is not a different translation.
         if (p.target.trim() && p.target.trim().toLowerCase() !== existing.target.toLowerCase()) {
-            outcomes.push(this.proposeTarget(existing, p, chapter));
+            outcomes.push(await this.proposeTarget(existing, p, chapter));
         }
         if (existing.type === "person" && p.gender && p.gender !== "unknown") {
-            const outcome = this.proposeGender(existing, p, chapter, sourceText);
+            const outcome = await this.proposeGender(existing, p, chapter, sourceText);
             if (outcome) outcomes.push(outcome);
         }
 
-        const term = this.reload(existing.id);
+        const term = await this.reload(existing.id);
         return outcomes.length ? outcomes : [{ kind: "unchanged", term }];
     }
 
-    private proposeTarget(term: Term, p: ProposedTerm, chapter: number): ProposalOutcome {
+    private async proposeTarget(term: Term, p: ProposedTerm, chapter: number): Promise<ProposalOutcome> {
         const value = p.target.trim();
         const why = p.note ?? "";
         if (term.locked) {
-            this.store.addChange({
+            await this.store.addChange({
                 termId: term.id, field: "target", oldValue: term.target, newValue: value,
                 chapter, evidence: p.evidence ?? "", reason: why, status: "rejected",
             });
             return { kind: "rejected", term, field: "target", value, why: "term is locked" };
         }
-        if (this.store.hasChange(term.id, "target", value, "rejected")) {
+        if (await this.store.hasChange(term.id, "target", value, "rejected")) {
             return { kind: "rejected", term, field: "target", value, why: "rejected before" };
         }
-        if (!this.store.hasChange(term.id, "target", value, "pending")) {
-            this.store.addChange({
+        if (!(await this.store.hasChange(term.id, "target", value, "pending"))) {
+            await this.store.addChange({
                 termId: term.id, field: "target", oldValue: term.target, newValue: value,
                 chapter, evidence: p.evidence ?? "", reason: why, status: "pending",
             });
@@ -132,7 +136,7 @@ export class Glossary {
         return { kind: "pending", term, field: "target", value, why: "translation changes need review" };
     }
 
-    private proposeGender(term: Term, p: ProposedTerm, chapter: number, sourceText: string): ProposalOutcome | undefined {
+    private async proposeGender(term: Term, p: ProposedTerm, chapter: number, sourceText: string): Promise<ProposalOutcome | undefined> {
         const to = p.gender!;
         const current = genderAt(term, chapter);
         if (current === to) return undefined;
@@ -140,35 +144,35 @@ export class Glossary {
         const change = { termId: term.id, field: "gender" as const, oldValue: current ?? "unknown", newValue: to, chapter, evidence: p.evidence ?? "", reason: p.note ?? "" };
 
         if (!current || current === "unknown") {
-            if (term.genders.length) this.store.resolveUnknownGender(term.id, to);
-            else this.store.setGender(term.id, term.firstChapter ?? chapter, to);
-            this.store.addChange({ ...change, status: "applied" });
-            return { kind: "gender-resolved", term: this.reload(term.id), gender: to };
+            if (term.genders.length) await this.store.resolveUnknownGender(term.id, to);
+            else await this.store.setGender(term.id, term.firstChapter ?? chapter, to);
+            await this.store.addChange({ ...change, status: "applied" });
+            return { kind: "gender-resolved", term: await this.reload(term.id), gender: to };
         }
 
         if (term.locked) {
-            this.store.addChange({ ...change, status: "rejected" });
+            await this.store.addChange({ ...change, status: "rejected" });
             return { kind: "rejected", term, field: "gender", value: to, why: "term is locked" };
         }
 
         if (evidenceFound(p.evidence, sourceText)) {
-            this.store.setGender(term.id, chapter, to);
-            this.store.addChange({ ...change, status: "applied" });
-            return { kind: "gender-changed", term: this.reload(term.id), from: current, to };
+            await this.store.setGender(term.id, chapter, to);
+            await this.store.addChange({ ...change, status: "applied" });
+            return { kind: "gender-changed", term: await this.reload(term.id), from: current, to };
         }
 
-        if (this.store.hasChange(term.id, "gender", to, "rejected")) {
+        if (await this.store.hasChange(term.id, "gender", to, "rejected")) {
             return { kind: "rejected", term, field: "gender", value: to, why: "rejected before" };
         }
-        if (!this.store.hasChange(term.id, "gender", to, "pending")) {
-            this.store.addChange({ ...change, status: "pending" });
+        if (!(await this.store.hasChange(term.id, "gender", to, "pending"))) {
+            await this.store.addChange({ ...change, status: "pending" });
         }
         return { kind: "pending", term, field: "gender", value: to, why: p.evidence ? "evidence quote not found in source" : "no evidence quote" };
     }
 
     /** Re-reads a term changed in the store from outside (review, prompts). */
-    reload(id: number): Term {
-        const term = this.store.getTerm(id)!;
+    async reload(id: number): Promise<Term> {
+        const term = (await this.store.getTerm(id))!;
         this.terms.set(id, term);
         return term;
     }

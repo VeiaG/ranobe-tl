@@ -47,32 +47,30 @@ export function parseLegacyValue(source: string, value: string): LegacyEntry {
     return { source: source.trim(), target, type, gender, note: notes.join(", ") };
 }
 
-export function importLegacy(
+export async function importLegacy(
     store: GlossaryStore,
     memory: Record<string, string>
-): { imported: number; duplicates: { kept: string; skipped: string }[]; existing: number } {
+): Promise<{ imported: number; duplicates: { kept: string; skipped: string }[]; existing: number }> {
     const duplicates: { kept: string; skipped: string }[] = [];
     const seen = new Map<string, string>();
     let imported = 0;
     let existing = 0;
 
-    store.transaction(() => {
-        for (const [source, value] of Object.entries(memory)) {
-            const key = normalizeTerm(source);
-            if (seen.has(key)) {
-                duplicates.push({ kept: seen.get(key)!, skipped: source });
-                continue;
-            }
-            seen.set(key, source);
-            if (store.findTerm(source)) {
-                existing++;
-                continue;
-            }
-            const e = parseLegacyValue(source, value);
-            if (!e.target) continue;
-            store.insertTerm({ ...e, firstChapter: null, gender: e.type === "person" ? e.gender : undefined });
-            imported++;
+    for (const [source, value] of Object.entries(memory)) {
+        const key = normalizeTerm(source);
+        if (seen.has(key)) {
+            duplicates.push({ kept: seen.get(key)!, skipped: source });
+            continue;
         }
-    });
+        seen.set(key, source);
+        if (await store.findTerm(source)) {
+            existing++;
+            continue;
+        }
+        const e = parseLegacyValue(source, value);
+        if (!e.target) continue;
+        await store.insertTerm({ ...e, firstChapter: null, gender: e.type === "person" ? e.gender : undefined });
+        imported++;
+    }
     return { imported, duplicates, existing };
 }

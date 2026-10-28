@@ -2,16 +2,16 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
-import type { Config } from "./config.js";
+import type { TranslationConfig } from "./config.js";
 
 export const PROVIDERS = ["openai", "anthropic", "google"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
-export const PROVIDER_DEFAULTS: Record<Provider, { model?: string; apiKeyEnv: string }> = {
-    openai: { model: "gpt-6-luna", apiKeyEnv: "OPENAI_API_KEY" },
-    anthropic: { model: "claude-opus-5-5", apiKeyEnv: "ANTHROPIC_API_KEY" },
+export const PROVIDER_DEFAULTS: Record<Provider, { model?: string; apiKeyEnv: string; label: string }> = {
+    openai: { model: "gpt-6-luna", apiKeyEnv: "OPENAI_API_KEY", label: "OpenAI" },
+    anthropic: { model: "claude-opus-5-5", apiKeyEnv: "ANTHROPIC_API_KEY", label: "Anthropic" },
     // Gemini ids change often; the model must be set explicitly.
-    google: { apiKeyEnv: "GOOGLE_GENERATIVE_AI_API_KEY" },
+    google: { apiKeyEnv: "GOOGLE_GENERATIVE_AI_API_KEY", label: "Google" },
 };
 
 type ProviderOptions = Record<string, Record<string, any>>;
@@ -24,20 +24,18 @@ export interface ModelSetup {
     systemProviderOptions: ProviderOptions;
 }
 
-export function resolveModelId(config: Pick<Config, "provider" | "model">): string {
-    const model = config.model ?? PROVIDER_DEFAULTS[config.provider].model;
-    if (!model) throw new Error(`"model" must be set in novel.json for provider "${config.provider}"`);
+export function resolveModelId(config: Pick<TranslationConfig, "provider" | "model">): string {
+    const model = config.model || PROVIDER_DEFAULTS[config.provider].model;
+    if (!model) throw new Error(`a model must be set for provider "${config.provider}"`);
     return model;
 }
 
-export function createModel(config: Config): ModelSetup {
-    const apiKeyEnv = config.apiKeyEnv ?? PROVIDER_DEFAULTS[config.provider].apiKeyEnv;
-    const apiKey = process.env[apiKeyEnv];
-    if (!apiKey) {
-        throw new Error(`API key not found: set ${apiKeyEnv} in the environment or in a .env file`);
-    }
+/** `apiKey` defaults to the provider's usual environment variable. */
+export function createModel(config: TranslationConfig, apiKey = process.env[PROVIDER_DEFAULTS[config.provider].apiKeyEnv]): ModelSetup {
+    if (!apiKey) throw new Error(`no API key for provider "${config.provider}"`);
     const modelId = resolveModelId(config);
-    const { baseURL, effort } = config;
+    const baseURL = config.baseURL || undefined;
+    const { effort } = config;
 
     switch (config.provider) {
         case "openai":

@@ -1,36 +1,22 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { PROVIDERS } from "./providers.js";
 
-export const CONFIG_FILE = "novel.json";
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
-const ConfigSchema = z.object({
-    range: z.object({
-        start: z.number().int().min(1),
-        end: z.number().int().min(1),
-    }),
-
-    inputFolder: z.string().default("chapters"),
-    outputFolder: z.string().default("translation"),
-    glossaryFile: z.string().default("glossary.db"),
-    /** Chapter files are named `{index padded to N}.txt` / `.json`. */
-    filePad: z.number().int().min(1).default(5),
-
+/** Everything the translator needs to know about a novel; storage and scheduling live elsewhere. */
+export const TranslationConfigSchema = z.object({
     sourceLanguage: z.string().default("English"),
     targetLanguage: z.string().default("Ukrainian"),
 
     provider: z.enum(PROVIDERS).default("openai"),
     /** Defaults per provider (see PROVIDER_DEFAULTS); required for google. */
     model: z.string().optional(),
-    /** Env variable holding the API key; defaults per provider. */
-    apiKeyEnv: z.string().optional(),
     /** Custom endpoint for the provider (OpenAI-compatible proxies, OpenRouter, ...). */
     baseURL: z.string().optional(),
     /** Not accepted by current Claude models (400); leave unset there. */
     temperature: z.number().optional(),
     /** Reasoning depth: OpenAI reasoningEffort / Anthropic effort. Ignored by google. */
-    effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+    effort: z.enum(EFFORTS).optional(),
     /** Output token limit per request; a full chapter needs ~10–15k. */
     maxOutputTokens: z.number().int().min(1000).default(32000),
 
@@ -73,51 +59,11 @@ const ConfigSchema = z.object({
             maxParagraphLoss: z.number().min(0).max(1).default(0.1),
         })
         .prefault({}),
-
-    debug: z
-        .object({
-            savePrompts: z.boolean().default(false),
-            folder: z.string().default("debug"),
-        })
-        .prefault({}),
 });
 
-export type Config = z.infer<typeof ConfigSchema> & { root: string };
+export type TranslationConfig = z.infer<typeof TranslationConfigSchema>;
+export type TranslationConfigInput = z.input<typeof TranslationConfigSchema>;
 
-export async function loadConfig(root = process.cwd()): Promise<Config> {
-    const file = path.join(root, CONFIG_FILE);
-    let raw: string;
-    try {
-        raw = await fs.readFile(file, "utf-8");
-    } catch {
-        throw new Error(
-            `${CONFIG_FILE} not found in ${root}. Run "ranobe-tl init" first.`
-        );
-    }
-    const parsed = ConfigSchema.safeParse(JSON.parse(raw));
-    if (!parsed.success) {
-        throw new Error(`Invalid ${CONFIG_FILE}:\n${z.prettifyError(parsed.error)}`);
-    }
-    if (parsed.data.range.end < parsed.data.range.start) {
-        throw new Error("range.end must be >= range.start");
-    }
-    return { ...parsed.data, root };
+export function parseConfig(input: TranslationConfigInput): TranslationConfig {
+    return TranslationConfigSchema.parse(input);
 }
-
-export function chapterFile(config: Config, kind: "input" | "output", index: number): string {
-    const name = index.toString().padStart(config.filePad, "0");
-    return kind === "input"
-        ? path.resolve(config.root, config.inputFolder, `${name}.txt`)
-        : path.resolve(config.root, config.outputFolder, `${name}.json`);
-}
-
-export const CONFIG_TEMPLATE = {
-    range: { start: 1, end: 100 },
-    provider: "openai",
-    model: "gpt-6-luna",
-    sourceLanguage: "English",
-    targetLanguage: "Ukrainian",
-    stringsToRemove: [],
-    fixedTerms: {},
-    instructions: "",
-};

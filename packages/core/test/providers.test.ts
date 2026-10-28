@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { test } from "node:test";
 import { MockLanguageModelV3 } from "ai/test";
-import { loadConfig, type Config } from "../src/config.js";
+import { parseConfig, type TranslationConfig as Config } from "../src/config.js";
 import { Glossary } from "../src/glossary/glossary.js";
-import { GlossaryStore } from "../src/glossary/store.js";
+import { MemoryGlossaryStore } from "../src/glossary/store.js";
 import { Translator } from "../src/pipeline/translator.js";
 import { createModel, resolveModelId } from "../src/providers.js";
 
@@ -32,16 +29,13 @@ test("providers: default models, keys and options", () => {
     assert.deepEqual(google.providerOptions, { google: { threshold: "BLOCK_NONE" } });
 
     delete process.env.ANTHROPIC_API_KEY;
-    assert.throws(() => createModel({ ...base, provider: "anthropic" } as Config), /ANTHROPIC_API_KEY/);
+    assert.throws(() => createModel({ ...base, provider: "anthropic" } as Config), /no API key/);
+    // an explicit key wins over the environment
+    assert.ok(createModel({ ...base, provider: "anthropic" } as Config, "sk-explicit"));
 });
 
 test("translator: system message carries cache options, request carries provider options", async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "ranobe-tl-"));
-    mkdirSync(path.join(root, "chapters"));
-    writeFileSync(path.join(root, "chapters", "00001.txt"), "Title\n\n" + "Some text here. ".repeat(100));
-    writeFileSync(path.join(root, "novel.json"), JSON.stringify({ range: { start: 1, end: 1 }, maxAttempts: 1 }));
-    const config = await loadConfig(root);
-    const store = new GlossaryStore(":memory:");
+    const config = parseConfig({ maxAttempts: 1 });
     const model = new MockLanguageModelV3({
         doGenerate: async () => ({
             content: [{ type: "text", text: "nothing useful" }],
@@ -58,7 +52,8 @@ test("translator: system message carries cache options, request carries provider
         providerOptions: { anthropic: { effort: "low" } },
         systemProviderOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
     };
-    await new Translator(config, setup, new Glossary(store), store).translateChapter(1);
+    const glossary = await Glossary.load(new MemoryGlossaryStore());
+    await new Translator(config, setup, glossary).translateChapter(1, "Title\n\n" + "Some text here. ".repeat(100));
 
     const call = model.doGenerateCalls[0];
     assert.equal(call.prompt[0].role, "system");

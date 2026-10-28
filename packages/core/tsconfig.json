@@ -4,12 +4,14 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
+    "noEmit": true,
+    "allowImportingTsExtensions": false,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "declaration": false,
     "sourceMap": false
   },
-  "include": ["src"]
+  "include": ["src", "test"]
 }

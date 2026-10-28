@@ -3,12 +3,11 @@ import { test } from "node:test";
 import { Glossary, evidenceFound } from "../src/glossary/glossary.js";
 import { importLegacy, parseLegacyValue } from "../src/glossary/importLegacy.js";
 import { TermMatcher } from "../src/glossary/match.js";
-import { GlossaryStore, genderAt } from "../src/glossary/store.js";
+import { MemoryGlossaryStore, genderAt } from "../src/glossary/store.js";
 import { chunkText, cleanSource, dedupeTitle } from "../src/pipeline/preprocess.js";
 import { parseOutput } from "../src/pipeline/parse.js";
 import { validateTranslation } from "../src/pipeline/validate.js";
-import type { Config } from "../src/config.js";
-import { htmlToText } from "../src/commands/lncrawl.js";
+import type { TranslationConfig as Config } from "../src/config.js";
 
 const config = {
     sourceLanguage: "English",
@@ -27,7 +26,7 @@ test("matcher: longest match, possessive, capitalized single words", () => {
     assert.deepEqual(m.find("a bar of harkanium"), ["Harkanium"]);
 });
 
-test("legacy import: gender and notes leave the target", () => {
+test("legacy import: gender and notes leave the target", async () => {
     assert.deepEqual(parseLegacyValue("Lin Ming", "Лінь Мін (чоловік)"), {
         source: "Lin Ming", target: "Лінь Мін", type: "person", gender: "m", note: "",
     });
@@ -36,66 +35,66 @@ test("legacy import: gender and notes leave the target", () => {
     assert.equal(place.type, "place");
     assert.equal(place.note, "географічна назва");
 
-    const store = new GlossaryStore(":memory:");
-    const res = importLegacy(store, { "Battle Spirit": "Бойовий дух", "battle spirit": "бойовий дух", "Qin": "Цінь (жінка)" });
+    const store = new MemoryGlossaryStore();
+    const res = await importLegacy(store, { "Battle Spirit": "Бойовий дух", "battle spirit": "бойовий дух", "Qin": "Цінь (жінка)" });
     assert.equal(res.imported, 2);
     assert.equal(res.duplicates.length, 1);
-    assert.equal(store.findTerm("qin")!.genders[0].gender, "f");
+    assert.equal((await store.findTerm("qin"))!.genders[0].gender, "f");
 });
 
-test("glossary rules: new, variant, target change, gender changes", () => {
-    const store = new GlossaryStore(":memory:");
-    const g = new Glossary(store);
+test("glossary rules: new, variant, target change, gender changes", async () => {
+    const store = new MemoryGlossaryStore();
+    const g = await Glossary.load(store);
     const src = "Zhao Yun drew the blade. She smiled coldly at the Sky Tower.";
 
-    assert.equal(g.propose({ source: "Zhao Yun", target: "Чжао Юнь", type: "person", gender: "m" }, 10, src)[0].kind, "added");
-    assert.equal(g.propose({ source: "Sky Tower", target: "Небесна Вежа", type: "place" }, 10, src)[0].kind, "added");
+    assert.equal((await g.propose({ source: "Zhao Yun", target: "Чжао Юнь", type: "person", gender: "m" }, 10, src))[0].kind, "added");
+    assert.equal((await g.propose({ source: "Sky Tower", target: "Небесна Вежа", type: "place" }, 10, src))[0].kind, "added");
     // plural / hyphen variant is not added as a new term
-    assert.equal(g.propose({ source: "Sky-Towers", target: "Небесні Вежі", type: "place" }, 11, src)[0].kind, "similar");
+    assert.equal((await g.propose({ source: "Sky-Towers", target: "Небесні Вежі", type: "place" }, 11, src))[0].kind, "similar");
 
     // translation change → pending, applied only on accept
-    const t = g.propose({ source: "Sky Tower", target: "Вежа Неба", type: "place" }, 12, src);
+    const t = await g.propose({ source: "Sky Tower", target: "Вежа Неба", type: "place" }, 12, src);
     assert.equal(t[0].kind, "pending");
-    assert.equal(store.findTerm("Sky Tower")!.target, "Небесна Вежа");
+    assert.equal((await store.findTerm("Sky Tower"))!.target, "Небесна Вежа");
 
     // m → f without evidence → pending; with a real quote → applied from that chapter
-    assert.equal(g.propose({ source: "Zhao Yun", target: "Чжао Юнь", type: "person", gender: "f" }, 20, src)[0].kind, "pending");
-    const changed = g.propose({ source: "Zhao Yun", target: "Чжао Юнь", type: "person", gender: "f", evidence: "She smiled coldly" }, 20, src);
+    assert.equal((await g.propose({ source: "Zhao Yun", target: "Чжао Юнь", type: "person", gender: "f" }, 20, src))[0].kind, "pending");
+    const changed = await g.propose({ source: "Zhao Yun", target: "Чжао Юнь", type: "person", gender: "f", evidence: "She smiled coldly" }, 20, src);
     assert.equal(changed[0].kind, "gender-changed");
-    const zhao = store.findTerm("Zhao Yun")!;
+    const zhao = (await store.findTerm("Zhao Yun"))!;
     assert.equal(genderAt(zhao, 15), "m");
     assert.equal(genderAt(zhao, 25), "f");
 
     // unknown → known is resolved retroactively
-    g.propose({ source: "Elder Bai", target: "Старійшина Бай", type: "person" }, 5, src);
-    assert.equal(g.propose({ source: "Elder Bai", target: "Старійшина Бай", type: "person", gender: "f" }, 30, src)[0].kind, "gender-resolved");
-    assert.equal(genderAt(store.findTerm("Elder Bai")!, 5), "f");
+    await g.propose({ source: "Elder Bai", target: "Старійшина Бай", type: "person" }, 5, src);
+    assert.equal((await g.propose({ source: "Elder Bai", target: "Старійшина Бай", type: "person", gender: "f" }, 30, src))[0].kind, "gender-resolved");
+    assert.equal(genderAt((await store.findTerm("Elder Bai"))!, 5), "f");
 
     // same translation with different letter case is not a change
-    assert.equal(g.propose({ source: "Elder Bai", target: "старійшина бай", type: "person" }, 31, src)[0].kind, "unchanged");
+    assert.equal((await g.propose({ source: "Elder Bai", target: "старійшина бай", type: "person" }, 31, src))[0].kind, "unchanged");
 
     // a material saved capitalized is still found in lowercase text
-    g.propose({ source: "Harkanium", target: "Гарканій", type: "item" }, 18, src);
+    await g.propose({ source: "Harkanium", target: "Гарканій", type: "item" }, 18, src);
     assert.ok(g.relevant("forged from harkanium").some((t) => t.source === "Harkanium"));
 
     // locked terms are never changed
-    store.updateTerm(store.findTerm("Sky Tower")!.id, { locked: true });
-    assert.equal(g.propose({ source: "Sky Tower", target: "Інша", type: "place" }, 40, src)[0].kind, "rejected");
+    await store.updateTerm((await store.findTerm("Sky Tower"))!.id, { locked: true });
+    assert.equal((await g.propose({ source: "Sky Tower", target: "Інша", type: "place" }, 40, src))[0].kind, "rejected");
 });
 
-test("glossary: a rejected value is not queued again", () => {
-    const store = new GlossaryStore(":memory:");
-    const g = new Glossary(store);
+test("glossary: a rejected value is not queued again", async () => {
+    const store = new MemoryGlossaryStore();
+    const g = await Glossary.load(store);
     const src = "Zhao Yun drew the blade.";
-    g.propose({ source: "Zhao Yun", target: "Чжао Юнь", type: "person", gender: "m" }, 1, src);
-    g.propose({ source: "Zhao Yun", target: "Джао Юн", type: "person", gender: "f" }, 2, src);
-    for (const c of store.listChanges("pending")) store.setChangeStatus(c.id, "rejected");
+    await g.propose({ source: "Zhao Yun", target: "Чжао Юнь", type: "person", gender: "m" }, 1, src);
+    await g.propose({ source: "Zhao Yun", target: "Джао Юн", type: "person", gender: "f" }, 2, src);
+    for (const c of await store.listChanges("pending")) await store.setChangeStatus(c.id, "rejected");
 
-    const again = g.propose({ source: "Zhao Yun", target: "Джао Юн", type: "person", gender: "f" }, 3, src);
+    const again = await g.propose({ source: "Zhao Yun", target: "Джао Юн", type: "person", gender: "f" }, 3, src);
     assert.deepEqual(again.map((o) => o.kind), ["rejected", "rejected"]);
-    assert.equal(store.listChanges("pending").length, 0);
+    assert.equal((await store.listChanges("pending")).length, 0);
     // a different value is still proposed
-    assert.equal(g.propose({ source: "Zhao Yun", target: "Чжао Юн", type: "person" }, 4, src)[0].kind, "pending");
+    assert.equal((await g.propose({ source: "Zhao Yun", target: "Чжао Юн", type: "person" }, 4, src))[0].kind, "pending");
 });
 
 test("evidence must be a real quote", () => {
@@ -151,8 +150,7 @@ test("validate: loops are caught, laughter and doubled names are not", () => {
     assert.match(validateTranslation(looped, looped, config).problems.join(), /loop/);
 });
 
-test("lncrawl html → text, <think> stripped", () => {
-    assert.equal(htmlToText("<p>One &amp; two</p><p>Three<br>four &#8212; five</p>"), "One & two\n\nThree\nfour — five");
+test("parse: <think> stripped", () => {
     assert.equal(parseOutput("<think>hmm</think>\n<translation>\nТекст\n</translation>").translation, "Текст");
 });
 

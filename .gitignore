@@ -1,10 +1,12 @@
 node_modules
 dist
 .env
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
+.env.*
+!.env.example
+.next
+next-env.d.ts
+*.tsbuildinfo
+.data
 
 #local notes
 reference
