@@ -191,3 +191,14 @@ test("instance: slots respect the global and the per-key limits", { skip: !enabl
         await db.delete(schema.providerKey).where(eq(schema.providerKey.id, key.id));
     }
 });
+
+test("versions: replacing a translation keeps the old text, only the last ten stay", { skip: !enabled }, async () => {
+    const { keepVersion, KEEP_VERSIONS } = await import("@/server/versions");
+    const [c] = await db.insert(schema.chapter).values({ novelId, index: 40, source: "x", status: "done", title: "T", content: "v0" }).returning();
+    await keepVersion(db, { ...c, content: null }, "translation");
+    assert.equal((await db.select().from(schema.chapterVersion).where(eq(schema.chapterVersion.chapterId, c.id))).length, 0, "nothing to keep without text");
+    for (let i = 0; i < KEEP_VERSIONS + 3; i++) await keepVersion(db, { ...c, content: `v${i}` }, i % 2 ? "edit" : "translation");
+    const kept = await db.select().from(schema.chapterVersion).where(eq(schema.chapterVersion.chapterId, c.id));
+    assert.equal(kept.length, KEEP_VERSIONS);
+    assert.deepEqual(kept.map((v) => v.content).sort(), Array.from({ length: KEEP_VERSIONS }, (_, i) => `v${i + 3}`).sort());
+});

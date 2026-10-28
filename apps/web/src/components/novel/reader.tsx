@@ -30,6 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { ChapterStatus } from "@/db/schema";
 import { cn, formatTokens, timeAgo } from "@/lib/utils";
 import { saveTranslation } from "@/server/actions/chapters";
+import { HistoryDialog, type VersionView } from "./history-dialog";
 import { startRun } from "@/server/actions/run";
 
 interface ReaderTerm {
@@ -147,6 +148,7 @@ export function Reader({
     next,
     terms,
     exchanges,
+    versions,
 }: {
     novelId: number;
     novelTitle: string;
@@ -155,6 +157,7 @@ export function Reader({
     next: number | null;
     terms: ReaderTerm[];
     exchanges: Exchange[];
+    versions: VersionView[];
 }) {
     const router = useRouter();
     const [mode, setMode] = useState<Mode>(c.content ? "translation" : "source");
@@ -260,6 +263,7 @@ export function Reader({
                     <Button variant="ghost" size="icon-sm" onClick={() => setSize((s) => Math.min(24, s + 1))} aria-label="Larger text">
                         <Plus />
                     </Button>
+                    <HistoryDialog novelId={novelId} index={c.index} current={{ title: c.title, content: c.content }} versions={versions} />
                     {c.content && (
                         <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
                             <Pencil />

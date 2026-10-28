@@ -7,6 +7,7 @@ import { decrypt } from "@/lib/crypto";
 import { logEvent } from "@/server/activity";
 import { budgetStop } from "@/server/budget";
 import { claimSlot } from "@/server/instance";
+import { keepVersion } from "@/server/versions";
 import { PgGlossaryStore } from "@/server/glossary-store";
 import { novelConfig } from "@/server/novel-config";
 import { requestSync } from "@/server/queue";
@@ -192,6 +193,7 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
 
     switch (result.status) {
         case "done":
+            await keepVersion(db, ch, "translation");
             await db
                 .update(chapter)
                 .set({

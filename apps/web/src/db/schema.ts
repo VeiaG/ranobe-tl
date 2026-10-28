@@ -211,6 +211,29 @@ export const chapter = pgTable(
     (t) => [uniqueIndex("chapter_novel_idx").on(t.novelId, t.index), index("chapter_novel_status").on(t.novelId, t.status)]
 );
 
+/**
+ * Earlier translations of a chapter. A version is saved whenever the text is replaced (a new translation,
+ * a hand edit, a reset, a restore), so nothing is lost; the last few per chapter are kept.
+ */
+export const chapterVersion = pgTable(
+    "chapter_version",
+    {
+        id: serial("id").primaryKey(),
+        chapterId: integer("chapter_id")
+            .notNull()
+            .references(() => chapter.id, { onDelete: "cascade" }),
+        title: text("title"),
+        content: text("content").notNull(),
+        model: text("model").notNull().default(""),
+        /** When this text was made (the chapter's translatedAt at the time). */
+        translatedAt: timestamp("translated_at", { withTimezone: true }),
+        /** What replaced it: "translation", "edit", "reset", "restore". */
+        replacedBy: text("replaced_by").notNull(),
+        createdAt: createdAt(),
+    },
+    (t) => [index("chapter_version_chapter").on(t.chapterId, t.id)]
+);
+
 // ---------- glossary ----------
 
 export const term = pgTable(

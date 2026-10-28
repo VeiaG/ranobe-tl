@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Glossary, genderAt } from "@ranobe-tl/core";
 import { Reader } from "@/components/novel/reader";
 import { db } from "@/db";
-import { chapter, exchange } from "@/db/schema";
+import { chapter, chapterVersion, exchange } from "@/db/schema";
 import { PgGlossaryStore } from "@/server/glossary-store";
 import { getNovel } from "@/server/queries";
 
@@ -27,7 +27,7 @@ export default async function ChapterPage({ params }: { params: Promise<{ id: st
         .where(and(eq(chapter.novelId, id), eq(chapter.index, index)));
     if (!c) notFound();
 
-    const [[prev], [next], exchanges] = await Promise.all([
+    const [[prev], [next], exchanges, versions] = await Promise.all([
         db.select({ index: chapter.index }).from(chapter).where(and(eq(chapter.novelId, id), lt(chapter.index, index))).orderBy(desc(chapter.index)).limit(1),
         db.select({ index: chapter.index }).from(chapter).where(and(eq(chapter.novelId, id), gt(chapter.index, index))).orderBy(asc(chapter.index)).limit(1),
         db
@@ -35,6 +35,7 @@ export default async function ChapterPage({ params }: { params: Promise<{ id: st
             .from(exchange)
             .where(and(eq(exchange.novelId, id), eq(exchange.chapter, index)))
             .orderBy(asc(exchange.id)),
+        db.select().from(chapterVersion).where(eq(chapterVersion.chapterId, c.id)).orderBy(desc(chapterVersion.id)),
     ]);
 
     const glossary = await Glossary.load(new PgGlossaryStore(db, id));
@@ -66,6 +67,15 @@ export default async function ChapterPage({ params }: { params: Promise<{ id: st
             next={next?.index ?? null}
             terms={terms}
             exchanges={exchanges.map((e) => ({ ...e, createdAt: e.createdAt.toISOString() }))}
+            versions={versions.map((v) => ({
+                id: v.id,
+                title: v.title,
+                content: v.content,
+                model: v.model,
+                replacedBy: v.replacedBy,
+                translatedAt: v.translatedAt?.toISOString() ?? null,
+                createdAt: v.createdAt.toISOString(),
+            }))}
         />
     );
 }

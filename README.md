@@ -12,6 +12,7 @@ Self-hosted web app that translates web novels chapter by chapter with an LLM (O
 - **optional review of new terms** (per novel, opt-in): every new name also lands in Decisions, where you confirm it, fix its translation, type or gender, or remove it as "not a term" so it is never proposed again; can be limited to some types and to the first N chapters
 - **Telegram bot** with buttons for decisions, plus failures and finished runs; long polling, so it works behind NAT
 - **reader** with the original side by side and glossary terms highlighted, hand edits, re-translation of the chapters that use a changed term
+- **translation history**: whenever a chapter's text is replaced (a new translation, an edit, a reset), the old one is kept (last 10); compare any version with the current text word by word and restore it
 - **usage and costs**: every request is recorded (novel, chapter, key, model, tokens, whether validation rejected it); the Usage page shows daily spend by model, cost per chapter and what retries wasted, filtered by novel, provider, model or key. Costs come from an editable price table (Claude list prices built in), so the estimate before a run and the history stay in sync with it
 - **budgets**: a total per novel and a monthly one per API key; a run pauses when it reaches either
 - **instance settings** without restarts: how many novels translate at once, a limit per API key (rate limits, a local server), defaults for new novels, the Telegram bot token
