@@ -126,7 +126,7 @@ export function GlossaryTable({
                     <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${formatNumber(terms.length)} terms`} className="pl-8" />
                 </div>
                 <div className="flex gap-2">
-                    <Select value={type} onValueChange={setType}>
+                    <Select value={type} onValueChange={(v) => v && setType(v)} items={{ all: "All types", ...Object.fromEntries(TERM_TYPES.map((t) => [t, t])) }}>
                         <SelectTrigger className="w-40">
                             <SelectValue />
                         </SelectTrigger>
@@ -139,7 +139,7 @@ export function GlossaryTable({
                             ))}
                         </SelectContent>
                     </Select>
-                    <Select value={sort} onValueChange={(v) => setSort(v as Sort)}>
+                    <Select value={sort} onValueChange={(v) => v && setSort(v as Sort)} items={{ source: "A → Z", chapter: "First seen", recent: "Newest" }}>
                         <SelectTrigger className="w-36">
                             <ArrowDownAZ />
                             <SelectValue />
@@ -151,22 +151,18 @@ export function GlossaryTable({
                         </SelectContent>
                     </Select>
                     <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="icon" aria-label="Import or export">
+                        <DropdownMenuTrigger render={<Button variant="outline" size="icon" aria-label="Import or export" />}>
                                 <MoreHorizontal />
-                            </Button>
-                        </DropdownMenuTrigger>
+                            </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={() => setImporting(true)}>
+                            <DropdownMenuItem onClick={() => setImporting(true)}>
                                 <FileUp />
                                 Import JSON…
                             </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                                <a href={`/api/novels/${novelId}/glossary`}>
+                            <DropdownMenuItem render={<a href={`/api/novels/${novelId}/glossary`} />}>
                                     <Download />
                                     Export JSON
-                                </a>
-                            </DropdownMenuItem>
+                                </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                     <Button onClick={() => setEditing("new")}>
@@ -394,7 +390,7 @@ function TermDialog({ novelId, term, onClose }: { novelId: number; term: Glossar
                         <div className="grid gap-4 sm:grid-cols-2">
                             <div className="grid gap-2">
                                 <Label>Type</Label>
-                                <Select value={type} onValueChange={setType}>
+                                <Select value={type} onValueChange={(v) => v && setType(v)}>
                                     <SelectTrigger className="w-full">
                                         <SelectValue />
                                     </SelectTrigger>
@@ -410,7 +406,7 @@ function TermDialog({ novelId, term, onClose }: { novelId: number; term: Glossar
                             {type === "person" && (
                                 <div className="grid gap-2">
                                     <Label>Gender</Label>
-                                    <Select value={gender} onValueChange={setGender}>
+                                    <Select value={gender} onValueChange={(v) => v && setGender(v)} items={{ m: "Male", f: "Female", unknown: "Unknown" }}>
                                         <SelectTrigger className="w-full">
                                             <SelectValue />
                                         </SelectTrigger>

@@ -23,12 +23,10 @@ export default async function Dashboard() {
                 title="Dashboard"
                 description="Everything your translators are working on."
                 actions={
-                    <Button asChild>
-                        <Link href="/novels/new">
+                    <Button nativeButton={false} render={<Link href="/novels/new" />}>
                             <Plus />
                             New novel
-                        </Link>
-                    </Button>
+                        </Button>
                 }
             />
 
@@ -41,12 +39,10 @@ export default async function Dashboard() {
                         <div className="font-medium">Add an API key to start translating</div>
                         <div className="text-muted-foreground">OpenAI, Anthropic or Google. Keys are stored encrypted and can be shared between novels.</div>
                     </div>
-                    <Button asChild variant="outline" size="sm">
-                        <Link href="/settings?tab=keys">
+                    <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/settings?tab=keys" />}>
                             Add a key
                             <ArrowRight />
-                        </Link>
-                    </Button>
+                        </Button>
                 </div>
             )}
 
@@ -66,12 +62,10 @@ export default async function Dashboard() {
                 <h2 className="mb-3 text-sm font-medium text-muted-foreground">Novels</h2>
                 {novels.length === 0 ? (
                     <EmptyState icon={Sparkles} title="No novels yet" description="Create a novel, upload its chapters and let the translator work through them in order.">
-                        <Button asChild>
-                            <Link href="/novels/new">
+                        <Button nativeButton={false} render={<Link href="/novels/new" />}>
                                 <Plus />
                                 Create your first novel
-                            </Link>
-                        </Button>
+                            </Button>
                     </EmptyState>
                 ) : (
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

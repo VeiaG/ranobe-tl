@@ -135,7 +135,7 @@ function AddKeyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
                 >
                     <div className="grid gap-4 sm:grid-cols-2">
                         <Field label="Provider">
-                            <Select value={provider} onValueChange={(v) => setProvider(v as Provider)}>
+                            <Select value={provider} onValueChange={(v) => v && setProvider(v as Provider)} items={Object.fromEntries(PROVIDERS.map((p) => [p, PROVIDER_DEFAULTS[p].label]))}>
                                 <SelectTrigger className="w-full">
                                     <SelectValue />
                                 </SelectTrigger>

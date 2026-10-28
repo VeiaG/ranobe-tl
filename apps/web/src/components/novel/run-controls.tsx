@@ -42,17 +42,13 @@ export function RunControls({ novelId, counts, hasKey }: { novelId: number; coun
 
     if (!hasKey) {
         return (
-            <Button asChild variant="outline">
-                <Link href={`/novels/${novelId}/settings`}>Choose an API key</Link>
-            </Button>
+            <Button variant="outline" nativeButton={false} render={<Link href={`/novels/${novelId}/settings`} />}>Choose an API key</Button>
         );
     }
 
     if (counts.total === 0) {
         return (
-            <Button asChild>
-                <Link href={`/novels/${novelId}/chapters?upload=1`}>Upload chapters</Link>
-            </Button>
+            <Button nativeButton={false} render={<Link href={`/novels/${novelId}/chapters?upload=1`} />}>Upload chapters</Button>
         );
     }
 
@@ -65,20 +61,18 @@ export function RunControls({ novelId, counts, hasKey }: { novelId: number; coun
                         Pause
                     </Button>
                     <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="icon" className="rounded-l-none border-l-0" aria-label="More">
+                        <DropdownMenuTrigger render={<Button variant="outline" size="icon" className="rounded-l-none border-l-0" aria-label="More" />}>
                                 <ChevronDown />
-                            </Button>
-                        </DropdownMenuTrigger>
+                            </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-64">
-                            <DropdownMenuItem onSelect={() => run(() => pauseRun(novelId))}>
+                            <DropdownMenuItem onClick={() => run(() => pauseRun(novelId))}>
                                 <Pause />
                                 <div>
                                     <div>Pause after this chapter</div>
                                     <div className="text-xs text-muted-foreground">Nothing is lost</div>
                                 </div>
                             </DropdownMenuItem>
-                            <DropdownMenuItem variant="destructive" onSelect={() => run(() => stopNow(novelId))}>
+                            <DropdownMenuItem variant="destructive" onClick={() => run(() => stopNow(novelId))}>
                                 <Square />
                                 <div>
                                     <div>Stop now</div>
@@ -94,12 +88,10 @@ export function RunControls({ novelId, counts, hasKey }: { novelId: number; coun
                         <Play />
                         Resume anyway
                     </Button>
-                    <Button asChild>
-                        <Link href={`/novels/${novelId}/decisions`}>
+                    <Button nativeButton={false} render={<Link href={`/novels/${novelId}/decisions`} />}>
                             <Inbox />
                             Decide
-                        </Link>
-                    </Button>
+                        </Button>
                 </>
             ) : (
                 <div className="flex">
@@ -115,18 +107,16 @@ export function RunControls({ novelId, counts, hasKey }: { novelId: number; coun
                         </Button>
                     )}
                     <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button size="icon" className="rounded-l-none border-l border-primary-foreground/15" aria-label="More">
+                        <DropdownMenuTrigger render={<Button size="icon" className="rounded-l-none border-l border-primary-foreground/15" aria-label="More" />}>
                                 <ChevronDown />
-                            </Button>
-                        </DropdownMenuTrigger>
+                            </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
-                            <DropdownMenuItem onSelect={() => setOpen(true)}>
+                            <DropdownMenuItem onClick={() => setOpen(true)}>
                                 <Play />
                                 Choose chapters…
                             </DropdownMenuItem>
                             {counts.failed > 0 && (
-                                <DropdownMenuItem onSelect={() => run(() => startRun(novelId, { kind: "failed" }))}>
+                                <DropdownMenuItem onClick={() => run(() => startRun(novelId, { kind: "failed" }))}>
                                     <ListRestart />
                                     Retry {counts.failed} failed
                                 </DropdownMenuItem>
@@ -134,7 +124,7 @@ export function RunControls({ novelId, counts, hasKey }: { novelId: number; coun
                             {counts.queued > 0 && (
                                 <>
                                     <DropdownMenuSeparator />
-                                    <DropdownMenuItem onSelect={() => run(() => clearQueue(novelId))}>
+                                    <DropdownMenuItem onClick={() => run(() => clearQueue(novelId))}>
                                         <X />
                                         Clear the queue
                                     </DropdownMenuItem>

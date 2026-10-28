@@ -58,11 +58,9 @@ function Sidebar({ user, novels, pending }: Omit<ShellProps, "children">) {
             </nav>
             <div className="mt-6 flex items-center justify-between px-5 pb-1.5">
                 <span className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Novels</span>
-                <Button asChild variant="ghost" size="icon-xs" className="-mr-1.5 text-muted-foreground">
-                    <Link href="/novels/new" aria-label="New novel">
+                <Button variant="ghost" size="icon-xs" className="-mr-1.5 text-muted-foreground" nativeButton={false} render={<Link href="/novels/new" aria-label="New novel" />}>
                         <Plus />
-                    </Link>
-                </Button>
+                    </Button>
             </div>
             <div className="scrollbar-thin grid flex-1 content-start gap-0.5 overflow-y-auto px-2.5 pb-4">
                 {novels.length === 0 && <p className="px-2.5 py-1 text-xs text-muted-foreground">Nothing here yet.</p>}
@@ -125,12 +123,10 @@ export function AppShell(props: ShellProps) {
                         <Logo />
                     </Link>
                     {props.pending > 0 && (
-                        <Button asChild variant="ghost" size="sm" className="ml-auto">
-                            <Link href="/decisions">
+                        <Button variant="ghost" size="sm" className="ml-auto" nativeButton={false} render={<Link href="/decisions" />}>
                                 <Inbox />
                                 {props.pending}
-                            </Link>
-                        </Button>
+                            </Button>
                     )}
                 </header>
                 <main className="flex-1">{props.children}</main>

@@ -6,6 +6,7 @@ import { ChevronsUpDown, LogOut, Monitor, Moon, Sun } from "lucide-react";
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuLabel,
     DropdownMenuSeparator,
@@ -34,10 +35,12 @@ export function UserMenu({ user }: { user: { name: string; email: string; role: 
                 <ChevronsUpDown className="size-4 text-muted-foreground" />
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="start" className="w-56">
-                <DropdownMenuLabel className="font-normal">
-                    <div className="text-sm font-medium">{user.name}</div>
-                    <div className="text-xs text-muted-foreground">{user.email}</div>
-                </DropdownMenuLabel>
+                <DropdownMenuGroup>
+                    <DropdownMenuLabel className="font-normal">
+                        <div className="text-sm font-medium text-foreground">{user.name}</div>
+                        <div className="text-xs text-muted-foreground">{user.email}</div>
+                    </DropdownMenuLabel>
+                </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <div className="flex gap-1 px-1 py-1">
                     {[
@@ -60,7 +63,7 @@ export function UserMenu({ user }: { user: { name: string; email: string; role: 
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                    onSelect={async () => {
+                    onClick={async () => {
                         await authClient.signOut();
                         router.replace("/sign-in");
                         router.refresh();

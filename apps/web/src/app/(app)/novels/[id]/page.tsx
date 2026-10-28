@@ -92,12 +92,10 @@ export default async function NovelOverview({ params }: { params: Promise<{ id: 
                     {d.total === 0 && (
                         <div className="mt-5 flex items-center justify-between gap-3 rounded-lg bg-muted/50 p-3 text-sm">
                             <span className="text-muted-foreground">No chapters yet. Upload .txt files, a zip, or paste text.</span>
-                            <Button asChild size="sm">
-                                <Link href={`/novels/${id}/chapters?upload=1`}>
+                            <Button size="sm" nativeButton={false} render={<Link href={`/novels/${id}/chapters?upload=1`} />}>
                                     <Upload />
                                     Upload
-                                </Link>
-                            </Button>
+                                </Button>
                         </div>
                     )}
                 </div>

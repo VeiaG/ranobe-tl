@@ -117,9 +117,7 @@ function useHighlighter(terms: ReaderTerm[]) {
 function TermMark({ term, text }: { term: ReaderTerm; text: string }) {
     return (
         <Popover>
-            <PopoverTrigger asChild>
-                <span className="cursor-pointer rounded-[3px] bg-brand/10 underline decoration-brand/40 decoration-dotted underline-offset-4 hover:bg-brand/20">{text}</span>
-            </PopoverTrigger>
+            <PopoverTrigger render={<span className="cursor-pointer rounded-[3px] bg-brand/10 underline decoration-brand/40 decoration-dotted underline-offset-4 hover:bg-brand/20" />}>{text}</PopoverTrigger>
             <PopoverContent className="w-64 p-3 font-sans" side="top">
                 <div className="flex items-start justify-between gap-2">
                     <div className="text-sm font-medium">{term.source}</div>
@@ -207,32 +205,30 @@ export function Reader({
     return (
         <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
             <div className="sticky top-14 z-20 -mx-4 mb-6 flex flex-wrap items-center gap-2 border-b bg-background/85 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 md:top-0 lg:-mx-8 lg:px-8">
-                <Button asChild variant="ghost" size="sm" className="-ml-2">
-                    <Link href={`/novels/${novelId}/chapters`}>
+                <Button variant="ghost" size="sm" className="-ml-2" nativeButton={false} render={<Link href={`/novels/${novelId}/chapters`} />}>
                         <ArrowLeft />
                         <span className="hidden sm:inline">Chapters</span>
-                    </Link>
-                </Button>
+                    </Button>
                 <div className="flex items-center">
-                    <Button variant="ghost" size="icon-sm" disabled={prev === null} asChild={prev !== null} aria-label="Previous chapter">
-                        {prev !== null ? (
-                            <Link href={`/novels/${novelId}/chapters/${prev}`}>
-                                <ChevronLeft />
-                            </Link>
-                        ) : (
+                    {prev !== null ? (
+                        <Button variant="ghost" size="icon-sm" aria-label="Previous chapter" nativeButton={false} render={<Link href={`/novels/${novelId}/chapters/${prev}`} />}>
                             <ChevronLeft />
-                        )}
-                    </Button>
+                        </Button>
+                    ) : (
+                        <Button variant="ghost" size="icon-sm" disabled aria-label="Previous chapter">
+                            <ChevronLeft />
+                        </Button>
+                    )}
                     <span className="min-w-14 text-center font-mono text-sm tabular-nums">#{c.index}</span>
-                    <Button variant="ghost" size="icon-sm" disabled={next === null} asChild={next !== null} aria-label="Next chapter">
-                        {next !== null ? (
-                            <Link href={`/novels/${novelId}/chapters/${next}`}>
-                                <ChevronRight />
-                            </Link>
-                        ) : (
+                    {next !== null ? (
+                        <Button variant="ghost" size="icon-sm" aria-label="Next chapter" nativeButton={false} render={<Link href={`/novels/${novelId}/chapters/${next}`} />}>
                             <ChevronRight />
-                        )}
-                    </Button>
+                        </Button>
+                    ) : (
+                        <Button variant="ghost" size="icon-sm" disabled aria-label="Next chapter">
+                            <ChevronRight />
+                        </Button>
+                    )}
                 </div>
                 <div className="flex rounded-lg bg-muted p-[3px]">
                     {(
@@ -347,22 +343,18 @@ export function Reader({
 
             <nav className="mx-auto mt-14 flex max-w-[42rem] items-center justify-between border-t pt-6">
                 {prev !== null ? (
-                    <Button asChild variant="outline">
-                        <Link href={`/novels/${novelId}/chapters/${prev}`}>
+                    <Button variant="outline" nativeButton={false} render={<Link href={`/novels/${novelId}/chapters/${prev}`} />}>
                             <ChevronLeft />
                             Chapter {prev}
-                        </Link>
-                    </Button>
+                        </Button>
                 ) : (
                     <span />
                 )}
                 {next !== null && (
-                    <Button asChild variant="outline">
-                        <Link href={`/novels/${novelId}/chapters/${next}`}>
+                    <Button variant="outline" nativeButton={false} render={<Link href={`/novels/${novelId}/chapters/${next}`} />}>
                             Chapter {next}
                             <ChevronRight />
-                        </Link>
-                    </Button>
+                        </Button>
                 )}
             </nav>
 

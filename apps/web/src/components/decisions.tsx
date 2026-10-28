@@ -274,7 +274,7 @@ function NewTermCard({ group: g, showNovel, onDone }: { group: DecisionGroup; sh
                 </div>
                 <div className="grid gap-1.5">
                     <span className="text-xs font-medium text-muted-foreground">Type</span>
-                    <Select value={type} onValueChange={setType}>
+                    <Select value={type} onValueChange={(v) => v && setType(v)}>
                         <SelectTrigger className="w-full">
                             <SelectValue />
                         </SelectTrigger>
@@ -290,7 +290,7 @@ function NewTermCard({ group: g, showNovel, onDone }: { group: DecisionGroup; sh
                 {type === "person" && (
                     <div className="grid gap-1.5">
                         <span className="text-xs font-medium text-muted-foreground">Gender</span>
-                        <Select value={gender} onValueChange={setGender}>
+                        <Select value={gender} onValueChange={(v) => v && setGender(v)}>
                             <SelectTrigger className="w-full">
                                 <SelectValue />
                             </SelectTrigger>

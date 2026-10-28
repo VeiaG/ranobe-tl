@@ -122,12 +122,10 @@ export function TelegramPanel({ configured, bot, link }: { configured: boolean; 
                                     <Copy />
                                     Copy
                                 </Button>
-                                <Button asChild size="sm">
-                                    <a href={startLink} target="_blank" rel="noreferrer">
+                                <Button size="sm" nativeButton={false} render={<a href={startLink} target="_blank" rel="noreferrer" />}>
                                         <ExternalLink />
                                         Open Telegram
-                                    </a>
-                                </Button>
+                                    </Button>
                             </div>
                         ) : (
                             <Button

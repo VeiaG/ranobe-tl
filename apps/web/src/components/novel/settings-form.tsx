@@ -93,7 +93,7 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
                 </Field>
                 <div className="grid gap-5 sm:grid-cols-3">
                     <Field label="Reasoning effort" hint="OpenAI / Anthropic. Translation rarely needs much.">
-                        <Select value={effort} onValueChange={setEffort}>
+                        <Select value={effort} onValueChange={(v) => v && setEffort(v)} items={{ default: "Model default", ...Object.fromEntries(EFFORTS.map((x) => [x, x])) }}>
                             <SelectTrigger className="w-full">
                                 <SelectValue />
                             </SelectTrigger>

@@ -147,21 +147,13 @@ export function ChaptersTable(props: {
                         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Number or title" className="pl-8" />
                     </div>
                     <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="icon" aria-label="Export">
+                        <DropdownMenuTrigger render={<Button variant="outline" size="icon" aria-label="Export" />}>
                                 <Download />
-                            </Button>
-                        </DropdownMenuTrigger>
+                            </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem asChild>
-                                <a href={`/api/novels/${novelId}/export?format=txt`}>Zip of .txt files</a>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                                <a href={`/api/novels/${novelId}/export?format=json`}>Zip of .json (CLI format)</a>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                                <a href={`/api/novels/${novelId}/export?format=single`}>One .txt with everything</a>
-                            </DropdownMenuItem>
+                            <DropdownMenuItem render={<a href={`/api/novels/${novelId}/export?format=txt`} />}>Zip of .txt files</DropdownMenuItem>
+                            <DropdownMenuItem render={<a href={`/api/novels/${novelId}/export?format=json`} />}>Zip of .json (CLI format)</DropdownMenuItem>
+                            <DropdownMenuItem render={<a href={`/api/novels/${novelId}/export?format=single`} />}>One .txt with everything</DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                     <Button onClick={() => setUpload(true)}>
@@ -201,7 +193,8 @@ export function ChaptersTable(props: {
                         <TableRow className="hover:bg-transparent">
                             <TableHead className="w-10 pl-4">
                                 <Checkbox
-                                    checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                                    checked={allSelected}
+                                    indeterminate={someSelected && !allSelected}
                                     onCheckedChange={(v) => setSelected(v === true ? new Set(rows.map((r) => r.index)) : new Set())}
                                     aria-label="Select all"
                                 />
@@ -269,24 +262,20 @@ export function ChaptersTable(props: {
                                     <TableCell className="hidden text-right text-xs text-muted-foreground sm:table-cell">{r.translatedAt ? timeAgo(r.translatedAt) : "—"}</TableCell>
                                     <TableCell className="pr-3 text-right">
                                         <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" size="icon-xs" aria-label="Actions">
+                                            <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" aria-label="Actions" />}>
                                                     <MoreHorizontal />
-                                                </Button>
-                                            </DropdownMenuTrigger>
+                                                </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
-                                                <DropdownMenuItem asChild>
-                                                    <Link href={href}>
+                                                <DropdownMenuItem render={<Link href={href} />}>
                                                         <BookOpenText />
                                                         Open
-                                                    </Link>
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem onSelect={() => act(() => startRun(novelId, { kind: "chapters", indexes: [r.index] }))}>
+                                                    </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => act(() => startRun(novelId, { kind: "chapters", indexes: [r.index] }))}>
                                                     <Languages />
                                                     {r.status === "done" ? "Translate again" : "Translate"}
                                                 </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
-                                                <DropdownMenuItem variant="destructive" disabled={props.running} onSelect={() => act(() => deleteChapters(novelId, [r.index]), "Chapter deleted")}>
+                                                <DropdownMenuItem variant="destructive" disabled={props.running} onClick={() => act(() => deleteChapters(novelId, [r.index]), "Chapter deleted")}>
                                                     <Trash2 />
                                                     Delete
                                                 </DropdownMenuItem>

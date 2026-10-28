@@ -27,12 +27,10 @@ export function DeleteNovel({ novelId, title }: { novelId: number; title: string
                 <p className="text-sm text-muted-foreground">Chapters, translations, the glossary and its history are deleted for good.</p>
             </div>
             <AlertDialog>
-                <AlertDialogTrigger asChild>
-                    <Button variant="outline" className="text-destructive hover:text-destructive">
+                <AlertDialogTrigger render={<Button variant="outline" className="text-destructive hover:text-destructive" />}>
                         <Trash2 />
                         Delete novel
-                    </Button>
-                </AlertDialogTrigger>
+                    </AlertDialogTrigger>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Delete “{title}”?</AlertDialogTitle>

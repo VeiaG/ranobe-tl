@@ -207,7 +207,12 @@ export function NovelForm({ keys, initial, novelId }: { keys: KeyOption[]; initi
                             )
                         }
                     >
-                        <Select value={keyId} onValueChange={setKeyId} disabled={!keys.length}>
+                        <Select
+                            value={keyId}
+                            onValueChange={(v) => v && setKeyId(v)}
+                            disabled={!keys.length}
+                            items={Object.fromEntries(keys.map((k) => [String(k.id), `${k.name} · ${PROVIDER_DEFAULTS[k.provider as Provider]?.label ?? k.provider} ···${k.hint}`]))}
+                        >
                             <SelectTrigger className="w-full">
                                 <SelectValue placeholder="Choose a key" />
                             </SelectTrigger>
@@ -242,9 +247,7 @@ export function NovelForm({ keys, initial, novelId }: { keys: KeyOption[]; initi
 
             <div className="flex justify-end gap-2 border-t pt-6">
                 {!novelId && (
-                    <Button variant="ghost" asChild>
-                        <Link href="/">Cancel</Link>
-                    </Button>
+                    <Button variant="ghost" nativeButton={false} render={<Link href="/" />}>Cancel</Button>
                 )}
                 <Button type="submit" disabled={pending}>
                     {pending && <Loader2 className="animate-spin" />}
