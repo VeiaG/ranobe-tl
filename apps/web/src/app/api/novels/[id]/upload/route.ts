@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { chapter, novel } from "@/db/schema";
 import { logEvent } from "@/server/activity";
 import { readUpload, splitByHeadings, titleOf, type ImportedChapter } from "@/server/import/chapters";
+import { requestSync } from "@/server/queue";
 import { getSession } from "@/server/session";
 
 export const runtime = "nodejs";
@@ -88,5 +89,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
     await db.update(novel).set({ updatedAt: new Date() }).where(eq(novel.id, novelId));
     await logEvent(db, novelId, "info", `sources uploaded: ${added} added${replaced ? `, ${replaced} replaced` : ""}${skipped ? `, ${skipped} skipped (already there)` : ""}`);
+    await requestSync(novelId);
     return NextResponse.json({ added, replaced, skipped, problems });
 }

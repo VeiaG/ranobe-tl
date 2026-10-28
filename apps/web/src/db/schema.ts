@@ -100,6 +100,15 @@ export const telegramLink = pgTable("telegram_link", {
     createdAt: createdAt(),
 });
 
+// ---------- instance ----------
+
+/** Settings of the whole instance (storage, limits, defaults), one JSON value per key. */
+export const instanceSetting = pgTable("instance_setting", {
+    key: text("key").primaryKey(),
+    value: jsonb("value").$type<unknown>().notNull(),
+    updatedAt: updatedAt(),
+});
+
 // ---------- providers ----------
 
 export const providerKey = pgTable("provider_key", {
@@ -148,6 +157,11 @@ export const novel = pgTable("novel", {
     stopRequested: boolean("stop_requested").notNull().default(false),
     /** Chapters failed in a row; the run pauses itself after a few (bad key, dead endpoint). */
     failStreak: integer("fail_streak").notNull().default(0),
+    /** Folder of this novel in the backup storage, fixed at the first sync so renames don't move it. */
+    storageFolder: text("storage_folder"),
+    storageSyncedAt: timestamp("storage_synced_at", { withTimezone: true }),
+    /** Hash of the uploaded novel.json + glossary.json, to skip unchanged uploads. */
+    storageMetaHash: text("storage_meta_hash"),
     inputTokens: integer("input_tokens").notNull().default(0),
     cachedTokens: integer("cached_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
@@ -179,6 +193,9 @@ export const chapter = pgTable(
         inputTokens: integer("input_tokens").notNull().default(0),
         cachedTokens: integer("cached_tokens").notNull().default(0),
         outputTokens: integer("output_tokens").notNull().default(0),
+        /** Hashes of the files last uploaded to the backup storage. */
+        storageHash: text("storage_hash"),
+        storageSourceHash: text("storage_source_hash"),
         /** Seconds spent on the last translation. */
         duration: integer("duration"),
         translatedAt: timestamp("translated_at", { withTimezone: true }),

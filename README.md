@@ -12,6 +12,7 @@ Self-hosted web app that translates web novels chapter by chapter with an LLM (O
 - **optional review of new terms** (per novel, opt-in): every new name also lands in Decisions, where you confirm it, fix its translation, type or gender, or remove it as "not a term" so it is never proposed again; can be limited to some types and to the first N chapters
 - **Telegram bot** with buttons for decisions, plus failures and finished runs; long polling, so it works behind NAT
 - **reader** with the original side by side and glossary terms highlighted, hand edits, re-translation of the chapters that use a changed term
+- **backups as plain folders** in an S3-compatible bucket (R2, B2, MinIO, S3): translations, glossary and settings in the CLI's layout, uploaded incrementally; any folder (a backup, an export, an old CLI novel folder) imports back as a novel
 - accounts: the first one is the admin, others join with invite links; API keys are stored encrypted
 
 | | |
@@ -44,11 +45,30 @@ To build the image yourself instead of pulling it: clone the repo and run `docke
 | `TELEGRAM_BOT_USERNAME` | | only if the web container can't reach api.telegram.org to look it up |
 | `WORKER_CONCURRENCY` | 2 | novels translated at the same time |
 | `TRUSTED_ORIGINS` | | extra origins allowed to sign in, comma-separated (e.g. a second domain) |
+| `BACKUP_CRON` | `17 3 * * *` | when the nightly backup check runs (see Backups) |
+| `TZ` | UTC | time zone of `BACKUP_CRON` |
 | `POSTGRES_PASSWORD`, `PORT` | | |
 
 The image runs as `web`, `worker`, or `all` (both in one container, for the smallest setups). `compose.yml` runs `web` and `worker` separately; `docker compose stop` lets the chapter in flight finish (up to 10 minutes).
 
-Migrations run on start. Back up the `db` volume (`docker compose exec db pg_dump -U ranobe ranobe > backup.sql`).
+Migrations run on start.
+
+### Backups
+
+**Settings → Storage** keeps every novel as a folder in an S3-compatible bucket (Cloudflare R2, Backblaze B2, MinIO, AWS S3):
+
+```
+ranobe-tl/<novel>/novel.json              the CLI's config plus a "ranobeTl" block (title, decision mode, …)
+ranobe-tl/<novel>/glossary.json           terms with gender history, past decisions, "not a term" sources
+ranobe-tl/<novel>/translation/00001.json  { content, title }
+ranobe-tl/<novel>/chapters/00001.txt      sources (optional)
+```
+
+A chapter is uploaded a minute after it is translated or edited, the glossary after changes, and every novel is checked nightly. Only changed files are sent and nothing is deleted in the bucket. The same folder downloads as a zip from the chapters page (export menu).
+
+**New novel → Import a folder** creates a novel from a folder in the bucket or from a zip: a backup, an export, or a novel folder of the old CLI (`novel.json`, `chapters/`, `translation/`, `glossary.db` or `meta.json`), with its glossary, gender history, past decisions and chapter statuses.
+
+The folders are what matters; for a full copy of everything (accounts, activity log) dump the database too: `docker compose exec db pg_dump -U ranobe ranobe > backup.sql`.
 
 ## Using it
 

@@ -7,6 +7,7 @@ import { decrypt } from "@/lib/crypto";
 import { logEvent } from "@/server/activity";
 import { PgGlossaryStore } from "@/server/glossary-store";
 import { novelConfig } from "@/server/novel-config";
+import { requestSync } from "@/server/queue";
 import type { Notifier } from "./notify";
 
 /** After this many failed chapters in a row the run pauses itself: usually a bad key or a dead endpoint. */
@@ -173,6 +174,7 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
                 })
                 .where(eq(chapter.id, ch.id));
             await db.update(novel).set({ failStreak: 0 }).where(eq(novel.id, novelId));
+            await requestSync(novelId, "worker");
             await logEvent(db, novelId, "success", `chapter ${ch.index} translated in ${duration}s (${result.attempts} ${result.attempts === 1 ? "request" : "requests"})`, ch.index);
             break;
         case "skipped":

@@ -8,6 +8,7 @@ import { db } from "@/db";
 import { TERM_TYPES } from "@ranobe-tl/core";
 import { DECISION_MODES, novel } from "@/db/schema";
 import { NovelSettingsSchema } from "@/server/novel-config";
+import { requestSync } from "@/server/queue";
 import { requireUser } from "@/server/session";
 import { action } from "./util";
 
@@ -56,6 +57,7 @@ export async function updateNovel(id: number, input: NovelInput & { settings?: u
             .set({ ...data, ...(settings ? { settings } : {}) })
             .where(eq(novel.id, id));
         revalidatePath(`/novels/${id}`, "layout");
+        await requestSync(id);
         return { ok: true as const, message: "Saved" };
     });
 }
@@ -87,6 +89,7 @@ export async function updateNovelSettings(id: number, settings: unknown) {
         }
         await db.update(novel).set({ settings: parsed }).where(eq(novel.id, id));
         revalidatePath(`/novels/${id}`, "layout");
+        await requestSync(id);
         return { ok: true as const, message: "Translation settings saved" };
     });
 }

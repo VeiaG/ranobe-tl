@@ -111,3 +111,31 @@ test("decisions: reviewing new terms (confirm with fixes, or 'not a term')", { s
     assert.equal((await again.propose({ source: "Elder", target: "Старійшина", type: "rank" }, 31, src))[0].kind, "ignored");
     assert.equal((await store.listChanges("pending")).filter((c) => c.field === "new").length, 0);
 });
+
+test("storage: a novel folder imports back with its glossary, decisions and translations", { skip: !enabled }, async () => {
+    const { novelFolder } = await import("@/server/storage/folder");
+    const { importNovelFolder } = await import("@/server/storage/import");
+    const { PgGlossaryStore } = await import("@/server/glossary-store");
+    await db.insert(schema.chapter).values({ novelId, index: 13, source: "Chapter 13: Sky\n\nText of thirteen.", sourceTitle: "Chapter 13: Sky", status: "done", title: "Розділ 13", content: "Текст." });
+    await new PgGlossaryStore(db, novelId).ignore("The Elder");
+
+    const folder = await novelFolder(db, novelId);
+    assert.ok(folder.has("novel.json") && folder.has("glossary.json") && folder.has("translation/00013.json") && folder.has("chapters/00012.txt"));
+    const files = new Map([...folder].map(([p, body]) => [p, new TextEncoder().encode(body)]));
+    const res = await importNovelFolder(db, files, { title: "roundtrip" });
+    try {
+        const store = new PgGlossaryStore(db, res.novelId);
+        const original = await new PgGlossaryStore(db, novelId).allTerms();
+        const copy = await store.allTerms();
+        assert.deepEqual(copy.map((t) => [t.source, t.target, t.type, t.locked, t.genders]), original.map((t) => [t.source, t.target, t.type, t.locked, t.genders]));
+        assert.ok(await store.isIgnored("the elder"));
+        assert.ok((await store.listChanges("rejected")).some((c) => c.newValue === "Вежа Небес"));
+        const [c13] = await db.select().from(schema.chapter).where(eq(schema.chapter.novelId, res.novelId)).then((r) => r.filter((c) => c.index === 13));
+        assert.equal(c13.status, "done");
+        assert.equal(c13.content, "Текст.");
+        const [n] = await db.select().from(schema.novel).where(eq(schema.novel.id, res.novelId));
+        assert.equal(n.decisionMode, "pause");
+    } finally {
+        await db.delete(schema.novel).where(eq(schema.novel.id, res.novelId));
+    }
+});

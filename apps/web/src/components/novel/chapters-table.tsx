@@ -154,6 +154,8 @@ export function ChaptersTable(props: {
                             <DropdownMenuItem render={<a href={`/api/novels/${novelId}/export?format=txt`} />}>Zip of .txt files</DropdownMenuItem>
                             <DropdownMenuItem render={<a href={`/api/novels/${novelId}/export?format=json`} />}>Zip of .json (CLI format)</DropdownMenuItem>
                             <DropdownMenuItem render={<a href={`/api/novels/${novelId}/export?format=single`} />}>One .txt with everything</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem render={<a href={`/api/novels/${novelId}/export?format=folder`} />}>Novel folder with glossary (.zip)</DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                     <Button onClick={() => setUpload(true)}>

@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { KeyRound, Send, Users } from "lucide-react";
+import { HardDrive, KeyRound, Send, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function SettingsTabs({ tab, isAdmin }: { tab: string; isAdmin: boolean }) {
     const tabs = [
         { key: "keys", label: "API keys", icon: KeyRound },
         { key: "telegram", label: "Telegram", icon: Send },
+        { key: "storage", label: "Storage", icon: HardDrive },
         ...(isAdmin ? [{ key: "users", label: "Users", icon: Users }] : []),
     ];
     return (

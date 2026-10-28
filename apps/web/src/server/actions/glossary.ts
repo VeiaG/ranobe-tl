@@ -9,7 +9,9 @@ import { chapter, ignoredTerm, novel, term, termChange, termGender } from "@/db/
 import { logEvent } from "@/server/activity";
 import { decide, type DecisionInput } from "@/server/decisions";
 import { PgGlossaryStore } from "@/server/glossary-store";
-import { enqueueNovel } from "@/server/queue";
+import { GLOSSARY_FORMAT } from "@/server/storage/folder";
+import { parseGlossaryJson } from "@/server/storage/import";
+import { enqueueNovel, requestSync } from "@/server/queue";
 import { requireUser } from "@/server/session";
 import { action } from "./util";
 
@@ -27,6 +29,7 @@ export type TermInput = z.input<typeof TermSchema>;
 
 function refresh(novelId: number) {
     revalidatePath(`/novels/${novelId}`, "layout");
+    void requestSync(novelId);
 }
 
 export async function saveTerm(novelId: number, termId: number | null, input: TermInput) {
@@ -111,7 +114,19 @@ export async function importGlossary(novelId: number, json: string) {
         const store = new PgGlossaryStore(db, novelId);
         let imported = 0;
         let existing = 0;
-        if (Array.isArray(parsed)) {
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && (parsed as { format?: string }).format === GLOSSARY_FORMAT) {
+            const g = parseGlossaryJson(parsed);
+            for (const t of g.terms) {
+                if (await store.findTerm(t.source)) {
+                    existing++;
+                    continue;
+                }
+                const created = await store.insertTerm({ source: t.source, target: t.target, type: t.type, note: t.note, locked: t.locked, firstChapter: t.firstChapter });
+                for (const gender of t.genders) await store.setGender(created.id, gender.fromChapter, gender.gender);
+                imported++;
+            }
+            for (const s of g.ignored) await store.ignore(s);
+        } else if (Array.isArray(parsed)) {
             const Item = TermSchema.pick({ source: true, target: true }).extend({
                 type: z.enum(TERM_TYPES).catch("other"),
                 note: z.string().catch(""),

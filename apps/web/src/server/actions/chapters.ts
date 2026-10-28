@@ -4,6 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { chapter, novel } from "@/db/schema";
+import { requestSync } from "@/server/queue";
 import { requireUser } from "@/server/session";
 import { action } from "./util";
 
@@ -38,6 +39,7 @@ export async function saveTranslation(novelId: number, index: number, input: { t
             .set({ title: input.title.trim(), content: input.content.replace(/\r\n/g, "\n").trim(), status: "done", error: "", translatedAt: new Date(), model: "edited by hand" })
             .where(and(eq(chapter.novelId, novelId), eq(chapter.index, index)));
         revalidatePath(`/novels/${novelId}`, "layout");
+        await requestSync(novelId);
         return { ok: true as const, message: "Translation saved" };
     });
 }

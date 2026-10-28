@@ -2,7 +2,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { runMigrations } from "@/db/migrate";
 import { novel } from "@/db/schema";
-import { TRANSLATE_QUEUE, enqueueNovel, getBoss, type TranslateJob } from "@/server/queue";
+import { SYNC_ALL_QUEUE, SYNC_NOVEL_QUEUE, TRANSLATE_QUEUE, enqueueNovel, getBoss, type TranslateJob } from "@/server/queue";
+import { runSync } from "@/server/storage/sync";
 import { combine, silentNotifier, type Notifier } from "./notify";
 import { translateNext } from "./run";
 import { createTelegram } from "./telegram";
@@ -37,6 +38,15 @@ async function main() {
         const outcome = await translateNext(db, novelId, notifier);
         if (outcome === "next") await enqueueNovel(novelId, "worker");
     });
+
+    await boss.work<TranslateJob>(SYNC_NOVEL_QUEUE, async ([job]) => {
+        await runSync(db, job.data.novelId);
+    });
+    await boss.work(SYNC_ALL_QUEUE, async () => {
+        await runSync(db);
+    });
+    // nightly check of every novel, catches anything a debounced sync missed
+    await boss.schedule(SYNC_ALL_QUEUE, process.env.BACKUP_CRON || "17 3 * * *", {}, { singletonKey: "all", tz: process.env.TZ || "UTC" });
 
     // Novels left "running" by a previous worker get their job back (stately keeps it to one per novel).
     const running = await db
