@@ -21,7 +21,8 @@ export interface Term {
 }
 
 export type ChangeStatus = "applied" | "pending" | "rejected";
-export type ChangeField = "target" | "gender";
+/** "new": a new term waiting for review (ask-new policy). */
+export type ChangeField = "target" | "gender" | "new";
 
 export interface Change {
     id: number;
@@ -62,6 +63,10 @@ export interface GlossaryStore {
     /** Replaces every "unknown" entry, used when the gender becomes known. */
     resolveUnknownGender(termId: number, gender: Gender): Promise<void>;
 
+    /** Sources the user marked as "not a term"; the model's proposals for them are dropped. */
+    isIgnored(source: string): Promise<boolean>;
+    ignore(source: string): Promise<void>;
+
     addChange(c: NewChange): Promise<number>;
     listChanges(status?: ChangeStatus): Promise<Change[]>;
     hasChange(termId: number, field: ChangeField, newValue: string, status: ChangeStatus): Promise<boolean>;
@@ -83,6 +88,7 @@ export class MemoryGlossaryStore implements GlossaryStore {
     private terms = new Map<number, Omit<Term, "genders">>();
     private genders = new Map<number, GenderEntry[]>();
     private changes: Omit<Change, "source">[] = [];
+    private ignored = new Set<string>();
     private nextId = 1;
 
     async allTerms(): Promise<Term[]> {
@@ -136,6 +142,14 @@ export class MemoryGlossaryStore implements GlossaryStore {
 
     async resolveUnknownGender(termId: number, gender: Gender): Promise<void> {
         for (const g of this.genders.get(termId) ?? []) if (g.gender === "unknown") g.gender = gender;
+    }
+
+    async isIgnored(source: string): Promise<boolean> {
+        return this.ignored.has(normalizeTerm(source));
+    }
+
+    async ignore(source: string): Promise<void> {
+        this.ignored.add(normalizeTerm(source));
     }
 
     async addChange(c: NewChange): Promise<number> {

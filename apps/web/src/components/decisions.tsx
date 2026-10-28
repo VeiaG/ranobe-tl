@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Check, CheckCheck, Hourglass, Inbox, Loader2, Lock, Pencil, Quote, Undo2 } from "lucide-react";
+import { Check, CheckCheck, Hourglass, Inbox, Loader2, Lock, Pencil, Quote, Sparkles, Trash2, Undo2 } from "lucide-react";
+import { TERM_TYPES, type Gender, type TermType } from "@ranobe-tl/core";
 import { EmptyState } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { affectedChapters, decideChange, retranslate } from "@/server/actions/glossary";
 import type { DecisionGroup } from "@/server/decision-groups";
@@ -26,7 +28,7 @@ export function DecisionList({ groups, showNovel, waiting }: { groups: DecisionG
     const markDone = (key: string) => setDone((s) => new Set(s).add(key));
 
     if (!visible.length) {
-        return <EmptyState icon={Inbox} title="Nothing to decide" description="When the model proposes changing a term that is already in the glossary, it shows up here (and in Telegram, if you linked it)." />;
+        return <EmptyState icon={Inbox} title="Nothing to decide" description="When the model proposes changing a term that is already in the glossary (or finds a new one, if new terms are reviewed for this novel), it shows up here and in Telegram, if you linked it." />;
     }
 
     return (
@@ -51,18 +53,22 @@ export function DecisionList({ groups, showNovel, waiting }: { groups: DecisionG
                                 const res = await decideChange({ novelId: g.novelId, termId: g.term.id, field: g.field, useChangeId: null });
                                 if (res.ok) markDone(g.key);
                             }
-                            toast.success("Kept the current glossary for all");
+                            toast.success("The glossary stays as it is");
                             router.refresh();
                         })
                     }
                 >
                     {bulk ? <Loader2 className="animate-spin" /> : <Undo2 />}
-                    Keep current for all
+                    Keep everything as it is
                 </Button>
             </div>
-            {visible.map((g) => (
-                <DecisionCard key={g.key} group={g} showNovel={showNovel} onDone={() => markDone(g.key)} />
-            ))}
+            {visible.map((g) =>
+                g.field === "new" ? (
+                    <NewTermCard key={g.key} group={g} showNovel={showNovel} onDone={() => markDone(g.key)} />
+                ) : (
+                    <DecisionCard key={g.key} group={g} showNovel={showNovel} onDone={() => markDone(g.key)} />
+                )
+            )}
         </div>
     );
 }
@@ -187,6 +193,134 @@ function DecisionCard({ group: g, showNovel, onDone }: { group: DecisionGroup; s
                 <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
                     <Checkbox checked={lock} onCheckedChange={(v) => setLock(v === true)} />
                     Lock the term after deciding
+                </label>
+            </div>
+        </div>
+    );
+}
+
+/** Review of a new term: it is already in the glossary, so confirming keeps it, edits fix it, "not a term" removes it for good. */
+function NewTermCard({ group: g, showNovel, onDone }: { group: DecisionGroup; showNovel?: boolean; onDone: () => void }) {
+    const router = useRouter();
+    const [pending, start] = useTransition();
+    const [target, setTarget] = useState(g.term.target);
+    const [type, setType] = useState(g.term.type);
+    const [gender, setGender] = useState(g.term.gender ?? "unknown");
+    const [lock, setLock] = useState(false);
+    const c = g.changes[0];
+    const edited = target.trim() !== g.term.target || type !== g.term.type || (type === "person" && gender !== (g.term.gender ?? "unknown"));
+
+    const decide = (remove: boolean) =>
+        start(async () => {
+            const res = await decideChange({
+                novelId: g.novelId,
+                termId: g.term.id,
+                field: "new",
+                remove,
+                custom: target.trim() !== g.term.target ? target : null,
+                type: type as TermType,
+                gender: type === "person" ? (gender as Gender) : undefined,
+                lock,
+            });
+            if (!res.ok) return void toast.error(res.error);
+            onDone();
+            if (res.data?.resumed) toast.success("All decided, the translation continues");
+            else toast.success(remove ? `${g.term.source}: removed, it will not be proposed again` : `${g.term.source} → ${res.data?.applied}`);
+            if (!remove && target.trim() !== g.term.target) {
+                const affected = await affectedChapters(g.novelId, [g.term.id]);
+                const list = affected.ok ? (affected.data ?? []) : [];
+                if (list.length) {
+                    toast(`${list.length} translated chapters use the old “${g.term.target}”`, {
+                        duration: 12000,
+                        action: {
+                            label: "Translate again",
+                            onClick: async () => {
+                                const r = await retranslate(g.novelId, list);
+                                if (r.ok) toast.success(r.message ?? "Queued");
+                                else toast.error(r.error);
+                                router.refresh();
+                            },
+                        },
+                    });
+                }
+            }
+            router.refresh();
+        });
+
+    return (
+        <div className={cn("rounded-xl border bg-card shadow-xs transition-opacity", pending && "opacity-60")}>
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4">
+                <div className="min-w-0">
+                    {showNovel && (
+                        <Link href={`/novels/${g.novelId}/decisions`} className="mb-1 block text-xs text-muted-foreground hover:text-foreground">
+                            {g.novelTitle}
+                        </Link>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-lg font-semibold tracking-tight">{g.term.source}</span>
+                        <Badge variant="brand">
+                            <Sparkles />
+                            new term
+                        </Badge>
+                    </div>
+                    {c.reason && <p className="mt-0.5 text-sm text-muted-foreground">{c.reason}</p>}
+                </div>
+                <div className="text-right text-xs text-muted-foreground">first seen in chapter {c.chapter ?? g.term.firstChapter ?? "?"}</div>
+            </div>
+            <div className="grid gap-3 px-5 py-4 sm:grid-cols-[1fr_9rem_8rem]">
+                <div className="grid gap-1.5">
+                    <span className="text-xs font-medium text-muted-foreground">Translation</span>
+                    <Input value={target} onChange={(e) => setTarget(e.target.value)} className="text-base" />
+                </div>
+                <div className="grid gap-1.5">
+                    <span className="text-xs font-medium text-muted-foreground">Type</span>
+                    <Select value={type} onValueChange={setType}>
+                        <SelectTrigger className="w-full">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {TERM_TYPES.map((t) => (
+                                <SelectItem key={t} value={t}>
+                                    {t}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                {type === "person" && (
+                    <div className="grid gap-1.5">
+                        <span className="text-xs font-medium text-muted-foreground">Gender</span>
+                        <Select value={gender} onValueChange={setGender}>
+                            <SelectTrigger className="w-full">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="m">male</SelectItem>
+                                <SelectItem value="f">female</SelectItem>
+                                <SelectItem value="unknown">unknown</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
+                {c.evidence && (
+                    <p className="flex gap-1.5 font-serif text-sm text-muted-foreground italic sm:col-span-3">
+                        <Quote className="mt-0.5 size-3.5 shrink-0" />
+                        {c.evidence}
+                    </p>
+                )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-t bg-muted/20 px-5 py-3">
+                <Button size="sm" disabled={pending || !target.trim()} onClick={() => decide(false)}>
+                    {pending ? <Loader2 className="animate-spin" /> : <Check />}
+                    {edited ? "Save and confirm" : "Looks right"}
+                </Button>
+                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" disabled={pending} onClick={() => decide(true)}>
+                    <Trash2 />
+                    Not a term
+                </Button>
+                <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+                    <Checkbox checked={lock} onCheckedChange={(v) => setLock(v === true)} />
+                    Lock it
                 </label>
             </div>
         </div>

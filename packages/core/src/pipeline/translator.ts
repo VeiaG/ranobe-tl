@@ -183,7 +183,7 @@ export class Translator {
             if (decision === "pause") throw new PausedForDecisions(attempt);
             if (decision === "continue") return result;
 
-            for (const o of pending) await this.glossary.reload(o.term.id);
+            for (const o of pending) await this.glossary.reload(o.term.id).catch(() => undefined);
             await this.emit({ type: "retranslate", chapter, chunk });
             const again = await this.translateChunk(chapter, text, chunk, totalChunks, previousContext, false);
             if (again.ok) return { ...again, attempts: attempt + again.attempts };
@@ -253,6 +253,7 @@ function describeOutcome(o: ProposalOutcome): { level: EventLevel; message: stri
         case "gender-changed":
             return { level: "info", message: `${o.term.source}: gender ${o.from} → ${o.to} (evidence verified)` };
         case "pending":
+            if (o.field === "new") return { level: "warning", message: `${o.term.source} → ${o.value}: new term waits for review` };
             return { level: "warning", message: `${o.term.source}: ${o.field} "${o.value}" waits for a decision (${o.why})` };
         case "rejected":
             return { level: "info", message: `${o.term.source}: ${o.field} "${o.value}" rejected (${o.why})` };

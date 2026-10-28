@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Hourglass, ListChecks, Loader2 } from "lucide-react";
-import { PROVIDER_DEFAULTS, type Provider } from "@ranobe-tl/core";
+import { PROVIDER_DEFAULTS, TERM_TYPES, type AskNewPolicy, type Provider, type TermType } from "@ranobe-tl/core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { DecisionMode } from "@/db/schema";
@@ -69,10 +70,71 @@ export function DecisionModePicker({ value, onChange }: { value: DecisionMode; o
     );
 }
 
+/** Opt-in review of new terms: which types, and up to which chapter. */
+export function AskNewPicker({ value, onChange }: { value: AskNewPolicy | null; onChange: (v: AskNewPolicy | null) => void }) {
+    const on = value !== null;
+    const types = value?.types ?? [];
+    const toggleType = (t: TermType) => {
+        const next = types.includes(t) ? types.filter((x) => x !== t) : [...types, t];
+        onChange({ ...value, types: next.length ? next : undefined });
+    };
+    return (
+        <div className={cn("rounded-lg border p-3.5 transition-colors", on && "border-brand/60 bg-brand/5 ring-1 ring-brand/30")}>
+            <label className="flex items-start justify-between gap-4">
+                <span>
+                    <span className="block text-sm font-medium">Also review new terms</span>
+                    <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                        Every new name the model finds is added right away and also shows up in Decisions: confirm it, fix the translation, type or gender, or
+                        remove it as “not a term”. Catches mistakes before they spread through hundreds of chapters.
+                    </span>
+                </span>
+                <Switch checked={on} onCheckedChange={(v) => onChange(v ? { types: ["person", "place", "organization"] } : null)} />
+            </label>
+            {on && (
+                <div className="mt-4 grid gap-4 border-t pt-4">
+                    <div className="grid gap-2">
+                        <span className="text-xs font-medium text-muted-foreground">Only these types (none selected = all)</span>
+                        <div className="flex flex-wrap gap-1.5">
+                            {TERM_TYPES.map((t) => (
+                                <button
+                                    type="button"
+                                    key={t}
+                                    onClick={() => toggleType(t)}
+                                    className={cn(
+                                        "rounded-md border px-2 py-1 text-xs transition-colors hover:bg-accent",
+                                        types.includes(t) && "border-brand/50 bg-brand/12 text-brand hover:bg-brand/18"
+                                    )}
+                                >
+                                    {t}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="grid max-w-56 gap-2">
+                        <Label htmlFor="untilChapter" className="text-xs text-muted-foreground">
+                            Only until chapter
+                        </Label>
+                        <Input
+                            id="untilChapter"
+                            type="number"
+                            min={1}
+                            placeholder="always"
+                            value={value?.untilChapter ?? ""}
+                            onChange={(e) => onChange({ ...value, untilChapter: e.target.value ? Number(e.target.value) : undefined })}
+                        />
+                        <p className="text-xs text-muted-foreground">The main cast shows up early; later chapters can run on their own.</p>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export function NovelForm({ keys, initial, novelId }: { keys: KeyOption[]; initial?: Partial<NovelInput>; novelId?: number }) {
     const [pending, start] = useTransition();
     const [keyId, setKeyId] = useState<string>(initial?.providerKeyId ? String(initial.providerKeyId) : keys[0] ? String(keys[0].id) : "");
     const [mode, setMode] = useState<DecisionMode>((initial?.decisionMode as DecisionMode) ?? "queue");
+    const [askNew, setAskNew] = useState<AskNewPolicy | null>((initial?.askNew as AskNewPolicy | null | undefined) ?? null);
     const key = keys.find((k) => String(k.id) === keyId);
     const defaultModel = key ? PROVIDER_DEFAULTS[key.provider as Provider]?.model : undefined;
 
@@ -88,6 +150,7 @@ export function NovelForm({ keys, initial, novelId }: { keys: KeyOption[]; initi
             providerKeyId: keyId ? Number(keyId) : null,
             model: String(f.get("model") ?? ""),
             decisionMode: mode,
+            askNew,
         };
         start(async () => {
             const res = novelId ? await updateNovel(novelId, input) : await createNovel(input);
@@ -168,10 +231,13 @@ export function NovelForm({ keys, initial, novelId }: { keys: KeyOption[]; initi
 
             <section className="grid gap-4">
                 <div>
-                    <h2 className="font-medium">When the model wants to change a term</h2>
-                    <p className="text-sm text-muted-foreground">New terms are always added on their own. This is about changing a translation or a gender that is already in the glossary.</p>
+                    <h2 className="font-medium">Glossary decisions</h2>
+                    <p className="text-sm text-muted-foreground">
+                        The model may propose changing a translation or a gender that is already in the glossary. How should the run treat that (and new terms, if you review them)?
+                    </p>
                 </div>
                 <DecisionModePicker value={mode} onChange={setMode} />
+                <AskNewPicker value={askNew} onChange={setAskNew} />
             </section>
 
             <div className="flex justify-end gap-2 border-t pt-6">

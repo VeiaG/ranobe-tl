@@ -13,7 +13,7 @@ import {
     type TermType,
 } from "@ranobe-tl/core";
 import type { DB } from "@/db";
-import { term, termChange, termGender } from "@/db/schema";
+import { ignoredTerm, term, termChange, termGender } from "@/db/schema";
 
 type TermRow = typeof term.$inferSelect;
 
@@ -88,6 +88,22 @@ export class PgGlossaryStore implements GlossaryStore {
             .update(termGender)
             .set({ gender })
             .where(and(eq(termGender.termId, termId), eq(termGender.gender, "unknown")));
+    }
+
+    async isIgnored(source: string): Promise<boolean> {
+        const rows = await this.db
+            .select({ n: ignoredTerm.sourceNorm })
+            .from(ignoredTerm)
+            .where(and(eq(ignoredTerm.novelId, this.novelId), eq(ignoredTerm.sourceNorm, normalizeTerm(source))))
+            .limit(1);
+        return rows.length > 0;
+    }
+
+    async ignore(source: string): Promise<void> {
+        await this.db
+            .insert(ignoredTerm)
+            .values({ novelId: this.novelId, sourceNorm: normalizeTerm(source), source })
+            .onConflictDoNothing();
     }
 
     async addChange(c: NewChange): Promise<number> {

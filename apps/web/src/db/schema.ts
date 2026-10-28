@@ -1,3 +1,4 @@
+import type { AskNewPolicy } from "@ranobe-tl/core";
 import {
     bigserial,
     boolean,
@@ -139,6 +140,8 @@ export const novel = pgTable("novel", {
     /** The rest of TranslationConfig (effort, chunking, validation, instructions, ...). */
     settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
     decisionMode: text("decision_mode").$type<DecisionMode>().notNull().default("queue"),
+    /** Opt-in review of new terms; null = new terms are added without asking. */
+    askNew: jsonb("ask_new").$type<AskNewPolicy | null>(),
     status: text("status").$type<NovelStatus>().notNull().default("idle"),
     statusMessage: text("status_message").notNull().default(""),
     /** Set by the user to abort the chapter in flight. */
@@ -241,6 +244,20 @@ export const termChange = pgTable(
         createdAt: createdAt(),
     },
     (t) => [index("term_change_novel_status").on(t.novelId, t.status), index("term_change_term").on(t.termId)]
+);
+
+/** Sources the user marked as "not a term": the model's proposals for them are dropped. */
+export const ignoredTerm = pgTable(
+    "ignored_term",
+    {
+        novelId: integer("novel_id")
+            .notNull()
+            .references(() => novel.id, { onDelete: "cascade" }),
+        sourceNorm: text("source_norm").notNull(),
+        source: text("source").notNull(),
+        createdAt: createdAt(),
+    },
+    (t) => [primaryKey({ columns: [t.novelId, t.sourceNorm] })]
 );
 
 // ---------- activity ----------

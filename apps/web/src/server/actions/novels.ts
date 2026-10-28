@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/db";
+import { TERM_TYPES } from "@ranobe-tl/core";
 import { DECISION_MODES, novel } from "@/db/schema";
 import { NovelSettingsSchema } from "@/server/novel-config";
 import { requireUser } from "@/server/session";
@@ -19,6 +20,14 @@ const NovelBaseSchema = z.object({
     providerKeyId: z.number().int().nullable().default(null),
     model: z.string().trim().default(""),
     decisionMode: z.enum(DECISION_MODES).default("queue"),
+    /** null: new terms are added without asking. */
+    askNew: z
+        .object({
+            types: z.array(z.enum(TERM_TYPES)).optional(),
+            untilChapter: z.number().int().min(1).optional(),
+        })
+        .nullable()
+        .default(null),
 });
 
 export type NovelInput = z.input<typeof NovelBaseSchema>;

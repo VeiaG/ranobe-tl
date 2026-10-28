@@ -1,6 +1,6 @@
 import { TermMatcher } from "./match";
 import { levenshtein, looseKey, normalizeTerm } from "./normalize";
-import { Gender, GlossaryStore, Term, TermType, genderAt } from "./store";
+import { ChangeField, Gender, GlossaryStore, Term, TermType, genderAt } from "./store";
 
 export interface ProposedTerm {
     source: string;
@@ -17,13 +17,37 @@ export type ProposalOutcome =
     | { kind: "unchanged"; term: Term }
     | { kind: "gender-resolved"; term: Term; gender: Gender }
     | { kind: "gender-changed"; term: Term; from: Gender; to: Gender }
-    | { kind: "pending"; term: Term; field: "target" | "gender"; value: string; why: string }
+    | { kind: "pending"; term: Term; field: ChangeField; value: string; why: string }
     | { kind: "rejected"; term: Term; field: "target" | "gender"; value: string; why: string }
-    | { kind: "similar"; proposed: ProposedTerm; similar: Term[] };
+    | { kind: "similar"; proposed: ProposedTerm; similar: Term[] }
+    /** The user said earlier that this is not a term. */
+    | { kind: "ignored"; proposed: ProposedTerm };
 
 export type PendingOutcome = Extract<ProposalOutcome, { kind: "pending" }>;
 
 const NAME_TYPES = new Set<TermType>(["person", "place", "organization"]);
+
+/**
+ * Opt-in review of new terms: they are still added right away (so the next chunks use them),
+ * but each one also waits for a decision. Limited to some types and/or early chapters if set.
+ */
+export interface AskNewPolicy {
+    types?: TermType[];
+    /** Only terms first seen up to this chapter are asked about. */
+    untilChapter?: number;
+}
+
+export function asksAboutNew(policy: AskNewPolicy | undefined, type: TermType, chapter: number): boolean {
+    if (!policy) return false;
+    if (policy.types?.length && !policy.types.includes(type)) return false;
+    if (policy.untilChapter && chapter > policy.untilChapter) return false;
+    return true;
+}
+
+export interface GlossaryOptions {
+    fixedTerms?: Record<string, string>;
+    askNew?: AskNewPolicy;
+}
 
 /** Glossary with an in-memory matcher kept in sync with the store. */
 export class Glossary {
@@ -31,7 +55,12 @@ export class Glossary {
     private matcher = new TermMatcher<number>();
     private fixed: Term[];
 
-    private constructor(private store: GlossaryStore, terms: Term[], fixedTerms: Record<string, string>) {
+    private constructor(
+        private store: GlossaryStore,
+        terms: Term[],
+        fixedTerms: Record<string, string>,
+        private askNew?: AskNewPolicy
+    ) {
         for (const t of terms) this.index(t);
         this.fixed = Object.entries(fixedTerms).map(([source, target], i) => ({
             id: -1 - i,
@@ -45,8 +74,8 @@ export class Glossary {
         }));
     }
 
-    static async load(store: GlossaryStore, fixedTerms: Record<string, string> = {}): Promise<Glossary> {
-        return new Glossary(store, await store.allTerms(), fixedTerms);
+    static async load(store: GlossaryStore, options: GlossaryOptions = {}): Promise<Glossary> {
+        return new Glossary(store, await store.allTerms(), options.fixedTerms ?? {}, options.askNew);
     }
 
     get size(): number {
@@ -55,7 +84,8 @@ export class Glossary {
 
     /** Terms occurring in the text plus all fixed terms. */
     relevant(text: string): Term[] {
-        const found = this.matcher.find(text).map((id) => this.terms.get(id)!);
+        // a term deleted meanwhile (e.g. "not a term") stays in the matcher but not in the map
+        const found = this.matcher.find(text).flatMap((id) => this.terms.get(id) ?? []);
         const fixedKeys = new Set(this.fixed.map((t) => normalizeTerm(t.source)));
         return [...this.fixed, ...found.filter((t) => !fixedKeys.has(normalizeTerm(t.source)))];
     }
@@ -74,15 +104,18 @@ export class Glossary {
 
     /**
      * Applies a term the model reported for a chapter:
-     * - new term → added (unless it looks like a variant of an existing one → logged as "similar")
+     * - new term → added (unless it looks like a variant of an existing one → logged as "similar");
+     *   with the ask-new policy it is also queued for review
+     * - a term the user removed as "not a term" → ignored
      * - gender unknown → known: applied everywhere
      * - gender m ↔ f: applied from this chapter if the evidence quote is found in the source, else pending
      * - different translation: never applied automatically, goes to the pending queue (rejected if locked)
- * - a value rejected once is not queued again
+     * - a value rejected once is not queued again
      */
     async propose(p: ProposedTerm, chapter: number, sourceText: string): Promise<ProposalOutcome[]> {
         const existing = await this.store.findTerm(p.source);
         if (!existing) {
+            if (await this.store.isIgnored(p.source)) return [{ kind: "ignored", proposed: p }];
             // Same term spelled differently (plural, hyphen, possessive) → don't add a duplicate.
             const variants = this.findSimilar(p.source).filter((t) => looseKey(t.source) === looseKey(p.source));
             if (variants.length) return [{ kind: "similar", proposed: p, similar: variants }];
@@ -96,7 +129,13 @@ export class Glossary {
                 gender: p.type === "person" ? (p.gender ?? "unknown") : undefined,
             });
             this.index(term);
-            return [{ kind: "added", term, lookalikes }];
+            const added: ProposalOutcome = { kind: "added", term, lookalikes };
+            if (!asksAboutNew(this.askNew, term.type, chapter)) return [added];
+            await this.store.addChange({
+                termId: term.id, field: "new", oldValue: "", newValue: term.target,
+                chapter, evidence: p.evidence ?? "", reason: p.note ?? "", status: "pending",
+            });
+            return [added, { kind: "pending", term, field: "new", value: term.target, why: "new terms are reviewed" }];
         }
 
         const outcomes: ProposalOutcome[] = [];
@@ -172,7 +211,11 @@ export class Glossary {
 
     /** Re-reads a term changed in the store from outside (review, prompts). */
     async reload(id: number): Promise<Term> {
-        const term = (await this.store.getTerm(id))!;
+        const term = await this.store.getTerm(id);
+        if (!term) {
+            this.terms.delete(id);
+            throw new Error(`term ${id} was deleted`);
+        }
         this.terms.set(id, term);
         return term;
     }

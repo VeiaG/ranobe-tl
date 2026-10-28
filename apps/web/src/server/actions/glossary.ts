@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { TERM_TYPES, TermMatcher, importLegacy, normalizeTerm, type Gender } from "@ranobe-tl/core";
 import { db } from "@/db";
-import { chapter, novel, term, termChange, termGender } from "@/db/schema";
+import { chapter, ignoredTerm, novel, term, termChange, termGender } from "@/db/schema";
 import { logEvent } from "@/server/activity";
 import { decide, type DecisionInput } from "@/server/decisions";
 import { PgGlossaryStore } from "@/server/glossary-store";
@@ -211,5 +211,14 @@ export async function termHistory(novelId: number, termId: number) {
                 status: c.status,
                 createdAt: c.createdAt.toISOString(),
             }));
+    });
+}
+
+/** Lets the model propose a source again after it was removed as "not a term". */
+export async function unignore(novelId: number, sourceNorm: string) {
+    return action(async () => {
+        await requireUser();
+        await db.delete(ignoredTerm).where(and(eq(ignoredTerm.novelId, novelId), eq(ignoredTerm.sourceNorm, sourceNorm)));
+        refresh(novelId);
     });
 }

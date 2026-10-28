@@ -9,6 +9,7 @@ Self-hosted web app that translates web novels chapter by chapter with an LLM (O
 - **every chunk is validated** and retried with feedback: length ratio, untranslated text, repetition loops, leaked tags / JSON, lost paragraphs (summarized passages), truncated output
 - **the model reports new terms**; new ones are added on their own, changes to existing ones wait for you in **Decisions**
 - **two ways to handle those changes**, per novel: keep translating and decide later, or stop that novel until you decide (others keep running) and translate the chapter again with the answer
+- **optional review of new terms** (per novel, opt-in): every new name also lands in Decisions, where you confirm it, fix its translation, type or gender, or remove it as "not a term" so it is never proposed again; can be limited to some types and to the first N chapters
 - **Telegram bot** with buttons for decisions, plus failures and finished runs; long polling, so it works behind NAT
 - **reader** with the original side by side and glossary terms highlighted, hand edits, re-translation of the chapters that use a changed term
 - accounts: the first one is the admin, others join with invite links; API keys are stored encrypted
@@ -61,6 +62,7 @@ Migrations run on start. Back up the `db` volume (`docker compose exec db pg_dum
 - gender m ↔ f → applied from this chapter if the model quotes evidence that really exists in the source, otherwise it waits for a decision
 - a different translation of an existing term → waits for a decision
 - a value you rejected once is not proposed again; locked terms never change
+- with "review new terms" on, a new term is still added at once (the next chunks use it) and also waits for review; a source removed as "not a term" is ignored from then on (restore it at the bottom of the glossary)
 
 When you change a term, the app offers to translate again the chapters whose source mentions it.
 

@@ -24,6 +24,7 @@ export default async function NovelSettingsPage({ params }: { params: Promise<{ 
                         providerKeyId: n.providerKeyId,
                         model: n.model,
                         decisionMode: n.decisionMode,
+                        askNew: n.askNew,
                     }}
                 />
             </section>

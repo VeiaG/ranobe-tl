@@ -17,7 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { cn, formatNumber } from "@/lib/utils";
-import { affectedChapters, deleteTerms, importGlossary, retranslate, saveTerm, setLocked, termHistory } from "@/server/actions/glossary";
+import { affectedChapters, deleteTerms, importGlossary, retranslate, saveTerm, setLocked, termHistory, unignore } from "@/server/actions/glossary";
 
 export interface GlossaryRow {
     id: number;
@@ -47,7 +47,17 @@ const GENDER: Record<string, string> = { m: "♂ male", f: "♀ female", unknown
 
 type Sort = "source" | "chapter" | "recent";
 
-export function GlossaryTable({ novelId, terms, initialQuery }: { novelId: number; terms: GlossaryRow[]; initialQuery: string }) {
+export function GlossaryTable({
+    novelId,
+    terms,
+    initialQuery,
+    ignored,
+}: {
+    novelId: number;
+    terms: GlossaryRow[];
+    initialQuery: string;
+    ignored: { source: string; sourceNorm: string }[];
+}) {
     const router = useRouter();
     const [q, setQ] = useState(initialQuery);
     const [type, setType] = useState<string>("all");
@@ -236,6 +246,34 @@ export function GlossaryTable({ novelId, terms, initialQuery }: { novelId: numbe
             <p className="text-xs text-muted-foreground">
                 Locked terms never change: the model may still propose something else, but it is rejected without asking.
             </p>
+            {ignored.length > 0 && (
+                <details className="rounded-xl border bg-card px-4 py-3 text-sm shadow-xs">
+                    <summary className="cursor-pointer text-muted-foreground">
+                        {ignored.length} {ignored.length === 1 ? "source is" : "sources are"} marked “not a term” and never added again
+                    </summary>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                        {ignored.map((i) => (
+                            <span key={i.sourceNorm} className="flex items-center gap-1 rounded-md border py-0.5 pr-0.5 pl-2 text-xs">
+                                {i.source}
+                                <Button
+                                    variant="ghost"
+                                    size="xs"
+                                    className="h-5 px-1.5 text-muted-foreground"
+                                    onClick={() =>
+                                        start(async () => {
+                                            const res = await unignore(novelId, i.sourceNorm);
+                                            if (!res.ok) toast.error(res.error);
+                                            router.refresh();
+                                        })
+                                    }
+                                >
+                                    restore
+                                </Button>
+                            </span>
+                        ))}
+                    </div>
+                </details>
+            )}
             <TermDialog novelId={novelId} term={editing} onClose={() => setEditing(null)} />
             <ImportDialog novelId={novelId} open={importing} onOpenChange={setImporting} />
         </div>

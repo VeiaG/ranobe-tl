@@ -61,7 +61,7 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
         .where(eq(termChange.novelId, novelId));
 
     const store = new PgGlossaryStore(db, novelId);
-    const glossary = await Glossary.load(store, config.fixedTerms);
+    const glossary = await Glossary.load(store, { fixedTerms: config.fixedTerms, askNew: n.askNew ?? undefined });
 
     const abort = new AbortController();
     const poll = setInterval(async () => {

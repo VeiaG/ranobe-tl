@@ -177,3 +177,43 @@ test("preprocess: duplicated title and chunking", () => {
     assert.equal(halves.length, 2);
     assert.ok(Math.min(...halves.map((c) => c.length)) > over.length / 3);
 });
+
+test("ask-new: new terms are added and queued for review, within the policy", async () => {
+    const store = new MemoryGlossaryStore();
+    const g = await Glossary.load(store, { askNew: { types: ["person", "place"], untilChapter: 50 } });
+    const src = "Zhao Yun drew the Frost Blade in the Sky Tower.";
+
+    const person = await g.propose({ source: "Zhao Yun", target: "Чжао Юнь", type: "person", gender: "m", note: "the hero" }, 3, src);
+    assert.deepEqual(person.map((o) => o.kind), ["added", "pending"]);
+    // added right away, so the next chunks already use it
+    assert.ok(g.relevant(src).some((t) => t.source === "Zhao Yun"));
+    const [review] = await store.listChanges("pending");
+    assert.equal(review.field, "new");
+    assert.equal(review.newValue, "Чжао Юнь");
+    assert.equal(review.reason, "the hero");
+
+    // other types and later chapters are not asked about
+    assert.deepEqual((await g.propose({ source: "Frost Blade", target: "Морозний Клинок", type: "item" }, 3, src)).map((o) => o.kind), ["added"]);
+    assert.deepEqual((await g.propose({ source: "Sky Tower", target: "Небесна Вежа", type: "place" }, 51, src)).map((o) => o.kind), ["added"]);
+    assert.equal((await store.listChanges("pending")).length, 1);
+
+    // without a policy nothing is asked
+    const plain = await Glossary.load(new MemoryGlossaryStore());
+    assert.deepEqual((await plain.propose({ source: "Zhao Yun", target: "Чжао Юнь", type: "person" }, 1, src)).map((o) => o.kind), ["added"]);
+});
+
+test("ignored terms: a removed 'not a term' is never added again", async () => {
+    const store = new MemoryGlossaryStore();
+    const g = await Glossary.load(store, { askNew: {} });
+    const src = "The Elder spoke.";
+    const [added] = await g.propose({ source: "Elder", target: "Старійшина", type: "rank" }, 1, src);
+    assert.equal(added.kind, "added");
+    if (added.kind !== "added") return;
+    await store.deleteTerm(added.term.id);
+    await store.ignore("elder");
+    // a reload notices the deletion; the term no longer comes back from the matcher
+    await assert.rejects(g.reload(added.term.id));
+    assert.deepEqual(g.relevant(src), []);
+    assert.equal((await g.propose({ source: "Elder", target: "Старійшина", type: "rank" }, 2, src))[0].kind, "ignored");
+    assert.equal(await store.findTerm("Elder"), undefined);
+});

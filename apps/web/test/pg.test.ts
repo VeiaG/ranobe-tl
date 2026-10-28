@@ -84,3 +84,30 @@ test("upload: chapter numbers come from file names", async () => {
     const parts = splitByHeadings("Chapter 1: A\n\nOne.\n\nChapter 2: B\n\nTwo.");
     assert.deepEqual(parts.map((p) => [p.index, p.source.split("\n")[0]]), [[1, "Chapter 1: A"], [2, "Chapter 2: B"]]);
 });
+
+test("decisions: reviewing new terms (confirm with fixes, or 'not a term')", { skip: !enabled }, async () => {
+    const { decide } = await import("@/server/decisions");
+    const { PgGlossaryStore } = await import("@/server/glossary-store");
+    const store = new PgGlossaryStore(db, novelId);
+    const g = await Glossary.load(store, { askNew: { types: ["person", "rank"] } });
+    const src = "Elder Mo nodded. The Elder spoke.";
+
+    assert.deepEqual((await g.propose({ source: "Elder Mo", target: "Старійшина Мо", type: "person" }, 30, src)).map((o) => o.kind), ["added", "pending"]);
+    assert.deepEqual((await g.propose({ source: "Elder", target: "Старійшина", type: "rank" }, 30, src)).map((o) => o.kind), ["added", "pending"]);
+
+    const mo = (await store.findTerm("Elder Mo"))!;
+    const fixed = await decide(db, { novelId, termId: mo.id, field: "new", custom: "Старець Мо", gender: "f" });
+    assert.equal(fixed.applied, "Старець Мо");
+    const after = (await store.findTerm("Elder Mo"))!;
+    assert.equal(after.target, "Старець Мо");
+    assert.equal(genderAt(after, 1), "f");
+
+    const elder = (await store.findTerm("Elder"))!;
+    const removed = await decide(db, { novelId, termId: elder.id, field: "new", remove: true });
+    assert.equal(removed.removed, true);
+    assert.equal(await store.findTerm("Elder"), undefined);
+    assert.ok(await store.isIgnored("elder"));
+    const again = await Glossary.load(store, { askNew: {} });
+    assert.equal((await again.propose({ source: "Elder", target: "Старійшина", type: "rank" }, 31, src))[0].kind, "ignored");
+    assert.equal((await store.listChanges("pending")).filter((c) => c.field === "new").length, 0);
+});

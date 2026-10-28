@@ -12,7 +12,7 @@ type Flag = "notifyDecisions" | "notifyFailures" | "notifyFinished";
 /** More groups than this in one notification are summarized with a link to the app. */
 const MAX_GROUPS_PER_MESSAGE = 8;
 /** Telegram limits callback data to 64 bytes: "<action>:<changeId>". */
-const ACTIONS = { keep: "k", use: "u", custom: "c" } as const;
+const ACTIONS = { keep: "k", use: "u", custom: "c", remove: "r" } as const;
 
 const GENDER_LABEL: Record<string, string> = { m: "male", f: "female", unknown: "unknown" };
 
@@ -176,12 +176,19 @@ export function createTelegram(db: DB, token: string): { bot: Bot; notifier: Not
         const res = await decide(db, {
             novelId: change.novelId,
             termId: change.termId,
-            field: change.field as "target" | "gender",
+            field: change.field as "target" | "gender" | "new",
             useChangeId: action === ACTIONS.use ? change.id : null,
+            remove: action === ACTIONS.remove,
             userId: link.userId,
         });
-        await ctx.answerCallbackQuery({ text: res.applied === null ? "Kept" : "Applied" });
-        await markDecided(ctx, res.applied === null ? "kept the current value" : `→ ${res.applied}`, res.resumed);
+        if (res.removed) {
+            await ctx.answerCallbackQuery({ text: "Removed" });
+            await markDecided(ctx, "not a term, removed", res.resumed);
+            return;
+        }
+        const confirmed = change.field === "new";
+        await ctx.answerCallbackQuery({ text: confirmed ? "Confirmed" : res.applied === null ? "Kept" : "Applied" });
+        await markDecided(ctx, confirmed ? "confirmed" : res.applied === null ? "kept the current value" : `→ ${res.applied}`, res.resumed);
     });
 
     bot.on("message:text", async (ctx) => {
@@ -196,7 +203,7 @@ export function createTelegram(db: DB, token: string): { bot: Bot; notifier: Not
         const res = await decide(db, {
             novelId: change.novelId,
             termId: change.termId,
-            field: "target",
+            field: change.field === "new" ? "new" : "target",
             custom: ctx.message.text,
             userId: link.userId,
         });
@@ -221,6 +228,17 @@ async function markDecided(ctx: Context, what: string, resumed: boolean) {
 
 function describeGroup(g: PendingGroup): string {
     const t = g.term;
+    if (g.field === "new") {
+        const c = g.changes[0];
+        const gender = t.type === "person" && g.gender ? `, ${GENDER_LABEL[g.gender] ?? g.gender}` : "";
+        const lines = [
+            `🆕 <b>${escapeHtml(t.source)}</b> → <b>${escapeHtml(t.target)}</b> <i>[${escapeHtml(t.type)}${gender}]</i>`,
+            `<i>${escapeHtml(g.novelTitle)} · new term, chapter ${c.chapter ?? t.firstChapter ?? "?"}</i>`,
+        ];
+        if (c.reason) lines.push(escapeHtml(c.reason));
+        if (c.evidence) lines.push(`“${escapeHtml(c.evidence)}”`);
+        return lines.join("\n");
+    }
     const head = `<b>${escapeHtml(t.source)}</b> → ${escapeHtml(t.target)} <i>[${escapeHtml(t.type)}${t.note ? `, ${escapeHtml(t.note)}` : ""}]</i>`;
     const now =
         g.field === "target"
@@ -240,6 +258,14 @@ function describeGroup(g: PendingGroup): string {
 
 function groupKeyboard(g: PendingGroup): InlineKeyboard {
     const kb = new InlineKeyboard();
+    if (g.field === "new") {
+        const id = g.changes[0].id;
+        return kb
+            .text("✓ Looks right", `${ACTIONS.keep}:${id}`)
+            .text("✏️ My own", `${ACTIONS.custom}:${id}`)
+            .row()
+            .text("🗑 Not a term", `${ACTIONS.remove}:${id}`);
+    }
     const seen = new Set<string>();
     for (const c of g.changes) {
         if (seen.has(c.newValue)) continue;
