@@ -112,7 +112,7 @@ Releases: push a tag `v1.2.3`. CI builds the image for amd64 and arm64 (`:1.2.3`
 
 Schema changes: edit `apps/web/src/db/schema.ts`, then `pnpm --filter @ranobe-tl/web db:generate`.
 
-The command-line version (`ranobe-tl` on npm, v0.1.x) is at commit [`ae61c18`](https://github.com/VeiaG/ranobe-tl/tree/ae61c18).
+The command-line version (`ranobe-tl` on npm, v0.1.x) lives on the [`cli`](https://github.com/VeiaG/ranobe-tl/tree/cli) branch.
 
 ## License
 
