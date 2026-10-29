@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ChevronDown, Loader2 } from "lucide-react";
 import { EFFORTS } from "@ranobe-tl/core";
 import { Field, FormSection } from "@/components/novel/novel-form";
+import { PatternsAssistant } from "@/components/novel/patterns-assistant";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -37,6 +38,7 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
     const [pending, start] = useTransition();
     const [effort, setEffort] = useState<string>(settings.effort ?? "default");
     const [advanced, setAdvanced] = useState(false);
+    const [patterns, setPatterns] = useState((settings.patternsToRemove ?? []).join("\n"));
     const v = settings.validation ?? {};
 
     function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -57,7 +59,7 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
                 maxParagraphLoss: num(f.get("maxParagraphLoss")),
             }).filter(([, x]) => x !== undefined)
         );
-        const patterns = lines(f.get("patternsToRemove"));
+        const patternList = lines(f.get("patternsToRemove"));
         const next: NovelSettings = {
             effort: effort === "default" ? undefined : (effort as NovelSettings["effort"]),
             temperature: num(f.get("temperature")),
@@ -68,7 +70,7 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
             instructions: String(f.get("instructions") ?? "").trim() || undefined,
             fixedTerms: Object.keys(fixedTerms).length ? fixedTerms : undefined,
             stringsToRemove: lines(f.get("stringsToRemove")).length ? lines(f.get("stringsToRemove")) : undefined,
-            patternsToRemove: patterns.length ? patterns : undefined,
+            patternsToRemove: patternList.length ? patternList : undefined,
             validation: Object.keys(validation).length ? validation : undefined,
         };
         start(async () => {
@@ -136,8 +138,30 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
                         <Field label="Strings to remove" htmlFor="stringsToRemove" hint="Exact text cut from sources, one per line.">
                             <Textarea id="stringsToRemove" name="stringsToRemove" defaultValue={(settings.stringsToRemove ?? []).join("\n")} rows={3} className="font-mono text-xs" />
                         </Field>
-                        <Field label="Patterns to remove" htmlFor="patternsToRemove" hint="Regexes (multiline, case-insensitive). Replaces the default credit-line pattern.">
-                            <Textarea id="patternsToRemove" name="patternsToRemove" defaultValue={(settings.patternsToRemove ?? []).join("\n")} placeholder={defaults.patternsToRemove.join("\n")} rows={3} className="font-mono text-xs" />
+                        <Field label="Patterns to remove" htmlFor="patternsToRemove" hint="Regexes (multiline, case-insensitive). Replaces the default credit-line pattern. ✨ writes them from a description.">
+                            <div className="relative">
+                                <Textarea
+                                    id="patternsToRemove"
+                                    name="patternsToRemove"
+                                    value={patterns}
+                                    onChange={(e) => setPatterns(e.target.value)}
+                                    placeholder={defaults.patternsToRemove.join("\n")}
+                                    rows={3}
+                                    className="pr-9 font-mono text-xs"
+                                />
+                                <div className="absolute top-1.5 right-1.5">
+                                    <PatternsAssistant
+                                        novelId={novelId}
+                                        onAdd={(added) =>
+                                            setPatterns((current) => {
+                                                // patterns set here replace the default one, so an empty field keeps it alongside
+                                                const existing = current.trim() ? lines(current) : defaults.patternsToRemove;
+                                                return [...existing, ...added.filter((p) => !existing.includes(p))].join("\n");
+                                            })
+                                        }
+                                    />
+                                </div>
+                            </div>
                         </Field>
                     </div>
                     <div>

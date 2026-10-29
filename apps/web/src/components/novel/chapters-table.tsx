@@ -29,6 +29,7 @@ import { deleteChapters, resetChapters } from "@/server/actions/chapters";
 import { startRun } from "@/server/actions/run";
 import { useLive } from "./live";
 import { UploadDialog } from "./upload-dialog";
+import { WujiDialog } from "./wuji-dialog";
 
 export interface ChapterRow {
     index: number;
@@ -65,6 +66,7 @@ export function ChaptersTable(props: {
     const live = useLive();
     const [selected, setSelected] = useState<Set<number>>(new Set());
     const [upload, setUpload] = useState(props.openUpload);
+    const [wuji, setWuji] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [q, setQ] = useState(props.q);
     const [pending, start] = useTransition();
@@ -156,8 +158,11 @@ export function ChaptersTable(props: {
                             <DropdownMenuItem render={<a href={`/api/novels/${novelId}/export?format=single`} />}>One .txt with everything</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem render={<a href={`/api/novels/${novelId}/export?format=folder`} />}>Novel folder with glossary (.zip)</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => setWuji(true)}>Publish to wuji.world…</DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
+                    <WujiDialog novelId={novelId} open={wuji} onOpenChange={setWuji} />
                     <Button onClick={() => setUpload(true)}>
                         <Upload />
                         <span className="hidden sm:inline">Upload</span>

@@ -53,8 +53,8 @@ const CUSTOM_MODEL = "__custom";
 
 const perMillion = (n: number) => `$${n < 1 ? n.toFixed(2).replace(/0$/, "") : n}`;
 
-/** Model of a novel: the key's provider lists what it has; "Other…" takes any id. Submitted as the `model` field. */
-function ModelPicker({ keyId, provider, defaultModel, initial }: { keyId: string; provider?: string; defaultModel?: string; initial: string }) {
+/** Model of a novel: the key's provider lists what it has; "Other…" takes any id. Submitted as the `name` field (`model`). */
+export function ModelPicker({ keyId, provider, defaultModel, initial, name = "model" }: { keyId: string; provider?: string; defaultModel?: string; initial: string; name?: string }) {
     const [value, setValue] = useState(initial);
     const [custom, setCustom] = useState(false);
     // another provider's model id means nothing to this one: back to its default
@@ -94,7 +94,7 @@ function ModelPicker({ keyId, provider, defaultModel, initial }: { keyId: string
 
     return (
         <div className="grid gap-2">
-            <input type="hidden" name="model" value={value} />
+            <input type="hidden" name={name} value={value} />
             <Select
                 value={selected}
                 items={items}

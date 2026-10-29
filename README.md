@@ -14,9 +14,10 @@ Self-hosted web app that translates web novels chapter by chapter with an LLM (O
 - **sequels keep their names**: a new novel can start its glossary from another novel or a glossary file (this app's glossary.json, the CLI's meta.json or glossary.db); the last known gender holds from chapter 1, and rejected proposals and "not a term" sources come along. Terms can be added the same way to an existing novel; what it already has is kept
 - **reader** with the original side by side and glossary terms highlighted, hand edits, re-translation of the chapters that use a changed term
 - **translation history**: whenever a chapter's text is replaced (a new translation, an edit, a reset), the old one is kept (last 10); compare any version with the current text word by word and restore it
+- **find and replace** over all translated chapters, in titles, text or both (Глава → Розділ): plain text or a regular expression, optionally keeping the case of each match; a preview shows every changed chapter first, and the old texts go to the history
 - **usage and costs**: every request is recorded (novel, chapter, key, model, tokens, whether validation rejected it); the Usage page shows daily spend by model, cost per chapter and what retries wasted, filtered by novel, provider, model or key. Costs come from an editable price table (Claude list prices built in), so the estimate before a run and the history stay in sync with it
 - **budgets**: a total per novel and a monthly one per API key; a run pauses when it reaches either
-- **instance settings** without restarts: how many novels translate at once, a limit per API key (rate limits, a local server), defaults for new novels, the Telegram bot token
+- **instance settings** without restarts: how many novels translate at once, a limit per API key (rate limits, a local server), defaults for new novels, the Telegram bot token, a **service model** (key, model, reasoning) for helper jobs: the ✨ next to a novel's "Patterns to remove" turns a description ("Patreon links at the end of chapters") into regexes, tried on every source before you add them
 - **backups as plain folders** in an S3-compatible bucket (R2, B2, MinIO, S3): translations, glossary and settings in the CLI's layout, uploaded incrementally; any folder (a backup, an export, an old CLI novel folder) imports back as a novel
 - accounts: the first one is the admin, others join with invite links; API keys are stored encrypted
 
@@ -66,6 +67,8 @@ The folders are what matters; for a full copy of everything (accounts, activity 
 **Chapters**: upload `.txt` files (first line is the title, the number comes from the file name: `00012.txt`, `Chapter 12.txt`), a `.zip` of them, a JSON array (`[{ "index", "title", "content" }]`), or paste a long text and split it at "Chapter N" lines.
 
 **Translate** queues everything not translated yet, failed chapters, or a range (optionally translating done chapters again). **Pause** lets the chapter in flight finish; **Stop now** drops it. After 3 failed chapters in a row (a bad key, a dead endpoint) the run pauses itself.
+
+**Publish to wuji.world** (export menu on the chapters page): sign in with the site's email and password, or paste the `payload-token` cookie for an account made with Google, pick one of the books the account can edit and a range; translated chapters are appended to the book in order. The sign-in is not saved. `WUJI_API_URL` points it at another copy of the site.
 
 **Glossary rules** (the same as the CLI had):
 - new term → added (spelling variants of an existing term are not)

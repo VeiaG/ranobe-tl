@@ -1,5 +1,5 @@
 import { and, count, eq, ne, sql } from "drizzle-orm";
-import { TERM_TYPES, type AskNewPolicy } from "@ranobe-tl/core";
+import { EFFORTS, TERM_TYPES, type AskNewPolicy } from "@ranobe-tl/core";
 import { z } from "zod";
 import type { DB } from "@/db";
 import { DECISION_MODES, chapter, novel } from "@/db/schema";
@@ -18,6 +18,12 @@ export const InstanceSchema = z.object({
         decisionMode: z.enum(DECISION_MODES),
         askNew: z.object({ types: z.array(z.enum(TERM_TYPES)).optional(), untilChapter: z.number().int().optional() }).nullable(),
     }),
+    /** The model for small helper tasks (suggesting cleanup patterns…), not for translation. */
+    service: z.object({
+        providerKeyId: z.number().int().nullable(),
+        model: z.string(),
+        effort: z.enum(EFFORTS).nullable(),
+    }),
 });
 export type InstanceConfig = z.infer<typeof InstanceSchema>;
 
@@ -27,13 +33,14 @@ export function instanceDefaults(): InstanceConfig {
     return {
         concurrency: Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 2)),
         defaults: { sourceLanguage: "English", targetLanguage: "Ukrainian", providerKeyId: null, model: "", decisionMode: "queue", askNew: null as AskNewPolicy | null },
+        service: { providerKeyId: null, model: "", effort: null },
     };
 }
 
 export async function instanceConfig(db: DB): Promise<InstanceConfig> {
     const fallback = instanceDefaults();
     const saved = await getSetting<Partial<InstanceConfig>>(db, INSTANCE_KEY, {});
-    return { ...fallback, ...saved, defaults: { ...fallback.defaults, ...(saved.defaults ?? {}) } };
+    return { ...fallback, ...saved, defaults: { ...fallback.defaults, ...(saved.defaults ?? {}) }, service: { ...fallback.service, ...(saved.service ?? {}) } };
 }
 
 export const TELEGRAM_KEY = "telegram";

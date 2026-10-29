@@ -12,6 +12,7 @@ export function NovelTabs({ novelId, counts }: { novelId: number; counts: { chap
         { href: `${base}/chapters`, label: "Chapters", count: counts.chapters },
         { href: `${base}/glossary`, label: "Glossary", count: counts.terms },
         { href: `${base}/decisions`, label: "Decisions", count: counts.pending, highlight: counts.pending > 0 },
+        { href: `${base}/replace`, label: "Replace" },
         { href: `${base}/settings`, label: "Settings" },
     ];
     return (

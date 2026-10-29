@@ -3,9 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Gauge, Loader2 } from "lucide-react";
-import { PROVIDER_DEFAULTS, type AskNewPolicy, type Provider } from "@ranobe-tl/core";
-import { AskNewPicker, DecisionModePicker, Field, type KeyOption } from "@/components/novel/novel-form";
+import { Gauge, Loader2, Sparkles } from "lucide-react";
+import { EFFORTS, PROVIDER_DEFAULTS, type AskNewPolicy, type Provider } from "@ranobe-tl/core";
+import { AskNewPicker, DecisionModePicker, Field, ModelPicker, type KeyOption } from "@/components/novel/novel-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -21,6 +21,9 @@ export function InstancePanel({ config, keys, isAdmin }: { config: InstanceConfi
     const [keyId, setKeyId] = useState(d.providerKeyId ? String(d.providerKeyId) : "none");
     const [mode, setMode] = useState<DecisionMode>(d.decisionMode);
     const [askNew, setAskNew] = useState<AskNewPolicy | null>(d.askNew);
+    const [serviceKeyId, setServiceKeyId] = useState(config.service.providerKeyId ? String(config.service.providerKeyId) : "none");
+    const [serviceEffort, setServiceEffort] = useState<string>(config.service.effort ?? "default");
+    const serviceKey = keys.find((k) => String(k.id) === serviceKeyId);
 
     return (
         <form
@@ -38,6 +41,11 @@ export function InstancePanel({ config, keys, isAdmin }: { config: InstanceConfi
                             model: String(f.get("model") ?? "").trim(),
                             decisionMode: mode,
                             askNew,
+                        },
+                        service: {
+                            providerKeyId: serviceKeyId === "none" ? null : Number(serviceKeyId),
+                            model: String(f.get("serviceModel") ?? "").trim(),
+                            effort: serviceEffort === "default" ? null : (serviceEffort as (typeof EFFORTS)[number]),
                         },
                     });
                     if (!res.ok) return void toast.error(res.error);
@@ -103,6 +111,65 @@ export function InstancePanel({ config, keys, isAdmin }: { config: InstanceConfi
                 </div>
                 <DecisionModePicker value={mode} onChange={setMode} />
                 <AskNewPicker value={askNew} onChange={setAskNew} />
+            </section>
+
+            <section className="grid gap-5 rounded-xl border bg-card p-6 shadow-xs">
+                <div className="flex gap-3">
+                    <Sparkles className="mt-0.5 size-4 shrink-0 text-brand" />
+                    <div>
+                        <h2 className="font-medium">Service model</h2>
+                        <p className="text-sm text-muted-foreground">
+                            Does small jobs around the translation, such as writing cleanup patterns from a description (the ✨ button in a novel&apos;s settings). A small, cheap model is enough.
+                            Its requests count in Usage like any other.
+                        </p>
+                    </div>
+                </div>
+                <div className="grid gap-5 sm:grid-cols-3">
+                    <Field label="API key">
+                        <Select
+                            value={serviceKeyId}
+                            onValueChange={(v) => v && setServiceKeyId(v)}
+                            disabled={!isAdmin}
+                            items={{ none: "Not set", ...Object.fromEntries(keys.map((k) => [String(k.id), `${k.name} · ${PROVIDER_DEFAULTS[k.provider as Provider]?.label ?? k.provider}`])) }}
+                        >
+                            <SelectTrigger className="w-full">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">Not set</SelectItem>
+                                {keys.map((k) => (
+                                    <SelectItem key={k.id} value={String(k.id)}>
+                                        {k.name} · {PROVIDER_DEFAULTS[k.provider as Provider]?.label ?? k.provider}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </Field>
+                    <Field label="Model" hint={serviceKey && !PROVIDER_DEFAULTS[serviceKey.provider as Provider]?.model ? "Required for this provider." : undefined}>
+                        <ModelPicker
+                            name="serviceModel"
+                            keyId={serviceKey ? serviceKeyId : ""}
+                            provider={serviceKey?.provider}
+                            defaultModel={serviceKey ? PROVIDER_DEFAULTS[serviceKey.provider as Provider]?.model : undefined}
+                            initial={config.service.model}
+                        />
+                    </Field>
+                    <Field label="Reasoning effort" hint="OpenAI / Anthropic.">
+                        <Select value={serviceEffort} onValueChange={(v) => v && setServiceEffort(v)} disabled={!isAdmin} items={{ default: "Model default", ...Object.fromEntries(EFFORTS.map((x) => [x, x])) }}>
+                            <SelectTrigger className="w-full">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="default">Model default</SelectItem>
+                                {EFFORTS.map((x) => (
+                                    <SelectItem key={x} value={x}>
+                                        {x}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </Field>
+                </div>
             </section>
 
             {isAdmin && (
