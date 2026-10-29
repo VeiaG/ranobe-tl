@@ -35,7 +35,8 @@ jobs:
 
     image:
         needs: test
-        if: github.event_name == 'push'
+        # images only for releases, not for every push to main
+        if: startsWith(github.ref, 'refs/tags/v')
         runs-on: ubuntu-latest
         permissions:
             contents: read
@@ -49,7 +50,7 @@ jobs:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
-            # a release tag v1.2.3 → :1.2.3, :1.2, :1 and :latest; main → :edge
+            # a release tag v1.2.3 → :1.2.3, :1.2, :1 and :latest
             - id: meta
               uses: docker/metadata-action@v5
               with:
@@ -58,7 +59,6 @@ jobs:
                       type=semver,pattern={{version}}
                       type=semver,pattern={{major}}.{{minor}}
                       type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
-                      type=edge,branch=main
             - uses: docker/build-push-action@v6
               with:
                   context: .

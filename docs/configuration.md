@@ -6,7 +6,7 @@
 
 | variable | default | what it does |
 |---|---|---|
-| `RANOBE_TL_VERSION` | `latest` in the repo, the release's own version in a release's `compose.yml` | image tag: `0.2.0`, `0.2` (patch updates only), `latest` (newest release), `edge` (the main branch, untested) |
+| `RANOBE_TL_VERSION` | `latest` in the repo, the release's own version in a release's `compose.yml` | image tag: `0.2.0`, `0.2` (patch updates only), `latest` (newest release) |
 | `APP_URL` | | the address you open the app at, e.g. `https://tl.example.com`. Set it when the app has a domain: cookies become `Secure`, and Telegram messages get "Open" links. Without it the app works on any address it is opened with (`http://192.168.1.20:3000`, a domain) |
 | `APP_SECRET` | generated | encrypts API keys, the bucket secret and the Telegram token in the database, and signs sessions. When empty, one is generated on the first start into the `data` volume. See [Secrets](#secrets) |
 | `PORT` | `3000` | port on the host |

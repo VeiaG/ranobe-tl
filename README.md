@@ -108,7 +108,7 @@ pnpm dev:worker       # in a second terminal
 pnpm test             # web tests that need Postgres run when DATABASE_URL is set
 ```
 
-Releases: create a release with a new tag `v1.2.3` on GitHub (or just push the tag). CI builds the image for amd64 and arm64 (`:1.2.3`, `:1.2`, `:latest`) and attaches a `compose.yml` pinned to that version to the release (creating it if only the tag was pushed). Every push to `main` also publishes `:edge`.
+Releases: create a release with a new tag `v1.2.3` on GitHub (or just push the tag). CI builds the image for amd64 and arm64 (`:1.2.3`, `:1.2`, `:latest`) and attaches a `compose.yml` pinned to that version to the release (creating it if only the tag was pushed).
 
 Schema changes: edit `apps/web/src/db/schema.ts`, then `pnpm --filter @ranobe-tl/web db:generate`.
 
