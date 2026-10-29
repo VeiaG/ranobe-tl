@@ -10,8 +10,9 @@
 | `APP_URL` | | the address you open the app at, e.g. `https://tl.example.com`. Set it when the app has a domain: cookies become `Secure`, and Telegram messages get "Open" links. Without it the app works on any address it is opened with (`http://192.168.1.20:3000`, a domain) |
 | `APP_SECRET` | generated | encrypts API keys, the bucket secret and the Telegram token in the database, and signs sessions. When empty, one is generated on the first start into the `data` volume. See [Secrets](#secrets) |
 | `PORT` | `3000` | port on the host |
-| `TELEGRAM_BOT_TOKEN` | | bot from @BotFather. Easier: paste it in **Settings → Telegram** (that one wins, no restart) |
+| `TELEGRAM_BOT_TOKEN` | | bot from @BotFather. Easier: paste it in **Settings → Telegram** (that one wins, no restart). Use a bot of its own: the app reads updates with long polling and removes a webhook set on the bot, so a bot shared with another app (a website's bot) breaks one of them |
 | `TELEGRAM_BOT_USERNAME` | | only if the container can't reach api.telegram.org to look it up |
+| `TELEGRAM_API_ROOT` | `https://api.telegram.org` | a self-hosted Bot API server |
 | `WORKER_CONCURRENCY` | `2` | novels translated at the same time, until changed in **Settings → Instance** |
 | `WORKER_SLOTS` | `8` | the most one worker can run at once; the real limit is the instance setting |
 | `BACKUP_CRON` | `17 3 * * *` | when the nightly bucket backup check runs (see the README, Backups) |

@@ -35,11 +35,23 @@ function telegramController() {
             return;
         }
         const telegram = createTelegram(db, token);
+        const self = { token, notifier: telegram.notifier, stop: () => telegram.bot.stop() };
         // long polling: no public URL needed, works behind NAT (a Raspberry Pi at home)
         telegram.bot
             .start({ drop_pending_updates: false, onStart: (me) => console.log(`[telegram] @${me.username} is listening`) })
-            .catch((error) => console.error("[telegram] bot stopped:", error));
-        current = { token, notifier: telegram.notifier, stop: () => telegram.bot.stop() };
+            .catch((error) => {
+                // 409: another process polls the same bot (the old container during a redeploy, a dev
+                // copy, another app on this token). grammY gives up then; the next token check retries.
+                const conflict = error?.error_code === 409;
+                console.error(
+                    conflict
+                        ? "[telegram] another process is reading this bot's updates; retrying in 30 s (a bot token can be used by one app only)"
+                        : "[telegram] bot stopped, retrying in 30 s:",
+                    conflict ? "" : error
+                );
+                if (current === self) current = null;
+            });
+        current = self;
     }
 
     // the run keeps one notifier; it forwards to whichever bot is live
