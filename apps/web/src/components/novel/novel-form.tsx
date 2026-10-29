@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Hourglass, ListChecks, Loader2 } from "lucide-react";
 import { PROVIDER_DEFAULTS, TERM_TYPES, type AskNewPolicy, type Provider, type TermType } from "@ranobe-tl/core";
@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import type { DecisionMode } from "@/db/schema";
 import { cn } from "@/lib/utils";
+import { listModels, type ModelOption } from "@/server/actions/keys";
 import { createNovel, updateNovel, type NovelInput } from "@/server/actions/novels";
 
 export interface KeyOption {
@@ -25,10 +26,112 @@ export interface KeyOption {
 
 export function Field({ label, hint, htmlFor, children, className }: { label: string; hint?: React.ReactNode; htmlFor?: string; children: React.ReactNode; className?: string }) {
     return (
-        <div className={cn("grid gap-2", className)}>
+        // content-start: a hint under the neighbouring field must not push this one's input down
+        <div className={cn("grid content-start gap-2", className)}>
             <Label htmlFor={htmlFor}>{label}</Label>
             {children}
             {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+        </div>
+    );
+}
+
+/** A form section: title and description on the left on wide screens, the fields on the right. */
+export function FormSection({ title, description, children }: { title: string; description?: React.ReactNode; children: React.ReactNode }) {
+    return (
+        <section className="grid gap-5 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:gap-10">
+            <div>
+                <h2 className="font-medium">{title}</h2>
+                {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+            </div>
+            <div className="grid min-w-0 content-start gap-5">{children}</div>
+        </section>
+    );
+}
+
+const DEFAULT_MODEL = "__default";
+const CUSTOM_MODEL = "__custom";
+
+const perMillion = (n: number) => `$${n < 1 ? n.toFixed(2).replace(/0$/, "") : n}`;
+
+/** Model of a novel: the key's provider lists what it has; "Other…" takes any id. Submitted as the `model` field. */
+function ModelPicker({ keyId, provider, defaultModel, initial }: { keyId: string; provider?: string; defaultModel?: string; initial: string }) {
+    const [value, setValue] = useState(initial);
+    const [custom, setCustom] = useState(false);
+    // another provider's model id means nothing to this one: back to its default
+    const [modelsOf, setModelsOf] = useState(provider);
+    if (provider !== modelsOf) {
+        setModelsOf(provider);
+        setValue("");
+        setCustom(false);
+    }
+    const [models, setModels] = useState<ModelOption[] | null>(null);
+    const [error, setError] = useState<string>();
+
+    useEffect(() => {
+        if (!keyId) return;
+        let live = true;
+        setModels(null);
+        listModels(Number(keyId)).then((res) => {
+            if (!live) return;
+            if (!res.ok) return void (setModels([]), setError(res.error));
+            setModels(res.data!.models);
+            setError(res.data!.error);
+        });
+        return () => {
+            live = false;
+        };
+    }, [keyId]);
+
+    const list = models ?? [];
+    // a saved model the provider no longer lists still shows up
+    const options = value && !list.some((m) => m.id === value) ? [{ id: value } as ModelOption, ...list] : list;
+    const items: Record<string, string> = {
+        ...(defaultModel ? { [DEFAULT_MODEL]: `Default · ${defaultModel}` } : {}),
+        ...Object.fromEntries(options.map((m) => [m.id, m.id])),
+        [CUSTOM_MODEL]: "Other…",
+    };
+    const selected = custom ? CUSTOM_MODEL : value || (defaultModel ? DEFAULT_MODEL : CUSTOM_MODEL);
+
+    return (
+        <div className="grid gap-2">
+            <input type="hidden" name="model" value={value} />
+            <Select
+                value={selected}
+                items={items}
+                disabled={!keyId}
+                onValueChange={(v) => {
+                    if (!v) return;
+                    setCustom(v === CUSTOM_MODEL);
+                    if (v !== CUSTOM_MODEL) setValue(v === DEFAULT_MODEL ? "" : v);
+                }}
+            >
+                <SelectTrigger className="w-full font-mono text-sm">
+                    <SelectValue />
+                    {keyId && !models && <Loader2 className="ml-auto animate-spin text-muted-foreground" />}
+                </SelectTrigger>
+                <SelectContent className="max-h-80">
+                    {defaultModel && (
+                        <SelectItem value={DEFAULT_MODEL}>
+                            Default <span className="font-mono text-muted-foreground">· {defaultModel}</span>
+                        </SelectItem>
+                    )}
+                    {options.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                            <span className="font-mono">{m.id}</span>
+                            {m.price && (
+                                <span className="ml-auto pl-3 text-xs text-muted-foreground tabular-nums">
+                                    {perMillion(m.price.input)} / {perMillion(m.price.output)}
+                                </span>
+                            )}
+                        </SelectItem>
+                    ))}
+                    <SelectItem value={CUSTOM_MODEL}>Other…</SelectItem>
+                </SelectContent>
+            </Select>
+            {(custom || (!value && !defaultModel)) && (
+                <Input aria-label="Model id" value={value} onChange={(e) => setValue(e.target.value)} placeholder="model id" className="font-mono text-sm" autoFocus={custom} />
+            )}
+            {error && <p className="text-xs text-muted-foreground">Showing the models with a known price: {error}.</p>}
         </div>
     );
 }
@@ -219,7 +322,7 @@ export function NovelForm({
             sourceLanguage: String(f.get("sourceLanguage") ?? "English"),
             targetLanguage: String(f.get("targetLanguage") ?? "Ukrainian"),
             providerKeyId: keyId ? Number(keyId) : null,
-            model: String(f.get("model") ?? ""),
+            model: String(f.get("model") ?? "").trim(),
             decisionMode: mode,
             askNew,
             budgetUsd: String(f.get("budgetUsd") ?? "").trim() ? Number(f.get("budgetUsd")) : null,
@@ -253,11 +356,7 @@ export function NovelForm({
 
     return (
         <form onSubmit={onSubmit} className="grid gap-8">
-            <section className="grid gap-5">
-                <div>
-                    <h2 className="font-medium">The novel</h2>
-                    <p className="text-sm text-muted-foreground">Title and synopsis are given to the model as background.</p>
-                </div>
+            <FormSection title="The novel" description="Title and synopsis are given to the model as background.">
                 <div className="grid gap-5 sm:grid-cols-2">
                     <Field label="Title" htmlFor="title">
                         <Input id="title" name="title" defaultValue={initial?.title} required placeholder="How you call it" />
@@ -277,13 +376,9 @@ export function NovelForm({
                         <Input id="targetLanguage" name="targetLanguage" defaultValue={initial?.targetLanguage ?? "Ukrainian"} required />
                     </Field>
                 </div>
-            </section>
+            </FormSection>
 
-            <section className="grid gap-5">
-                <div>
-                    <h2 className="font-medium">Model</h2>
-                    <p className="text-sm text-muted-foreground">Which key pays for this novel and which model translates it.</p>
-                </div>
+            <FormSection title="Model" description="Which key pays for this novel and which model translates it. Prices are per million input / output tokens.">
                 <div className="grid gap-5 sm:grid-cols-2">
                     <Field
                         label="API key"
@@ -320,35 +415,28 @@ export function NovelForm({
                             </SelectContent>
                         </Select>
                     </Field>
-                    <Field label="Model" htmlFor="model" hint={defaultModel ? `Leave empty for ${defaultModel}.` : key ? "Required for this provider." : undefined}>
-                        <Input id="model" name="model" defaultValue={initial?.model} placeholder={defaultModel ?? "model id"} className="font-mono text-sm" />
+                    <Field label="Model" hint={!defaultModel && key ? "Required for this provider." : undefined}>
+                        <ModelPicker keyId={keyId} provider={key?.provider} defaultModel={defaultModel} initial={initial?.model ?? ""} />
                     </Field>
                     <Field label="Budget, USD" htmlFor="budgetUsd" hint="Total for this novel; the run pauses when it is spent. Empty: no cap.">
                         <Input id="budgetUsd" name="budgetUsd" type="number" min={0} step="any" defaultValue={initial?.budgetUsd ?? ""} placeholder="no cap" />
                     </Field>
                 </div>
-            </section>
+            </FormSection>
 
             {!novelId && (
-                <section className="grid gap-4">
-                    <div>
-                        <h2 className="font-medium">Glossary</h2>
-                        <p className="text-sm text-muted-foreground">A sequel or a second part keeps its names consistent by starting from the earlier part&apos;s glossary.</p>
-                    </div>
+                <FormSection title="Glossary" description="A sequel or a second part keeps its names consistent by starting from the earlier part's glossary.">
                     <GlossaryStartPicker value={glossaryStart} onChange={setGlossaryStart} novels={novels} />
-                </section>
+                </FormSection>
             )}
 
-            <section className="grid gap-4">
-                <div>
-                    <h2 className="font-medium">Glossary decisions</h2>
-                    <p className="text-sm text-muted-foreground">
-                        The model may propose changing a translation or a gender that is already in the glossary. How should the run treat that (and new terms, if you review them)?
-                    </p>
-                </div>
+            <FormSection
+                title="Glossary decisions"
+                description="The model may propose changing a translation or a gender that is already in the glossary. How should the run treat that (and new terms, if you review them)?"
+            >
                 <DecisionModePicker value={mode} onChange={setMode} />
                 <AskNewPicker value={askNew} onChange={setAskNew} />
-            </section>
+            </FormSection>
 
             <div className="flex justify-end gap-2 border-t pt-6">
                 {!novelId && (

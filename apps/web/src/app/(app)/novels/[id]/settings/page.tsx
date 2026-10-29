@@ -10,7 +10,7 @@ export default async function NovelSettingsPage({ params }: { params: Promise<{ 
     const [{ novel: n }, keys] = await Promise.all([getNovel(id), listKeys()]);
     const defaults = TranslationConfigSchema.parse({});
     return (
-        <div className="mx-auto grid w-full max-w-3xl gap-8 px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mx-auto grid w-full max-w-6xl gap-6 px-4 py-6 sm:px-6 lg:px-8">
             <section className="rounded-xl border bg-card p-6 shadow-xs">
                 <NovelForm
                     novelId={id}
