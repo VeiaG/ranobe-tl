@@ -1,7 +1,7 @@
 import { convertToModelMessages, hasToolCall, stepCountIs, streamText, tool, type InferUITools, type UIMessage } from "ai";
-import { and, count, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, type DB } from "@/db";
-import { chapter, novel } from "@/db/schema";
+import { novel } from "@/db/schema";
 import { ProposeInput, ReadInput, SearchInput, previewEdits, readChapter, search } from "@/server/assistant";
 import { helperModel } from "@/server/service-model";
 import { getSession } from "@/server/session";
@@ -37,7 +37,8 @@ function makeTools(database: DB, novelId: number) {
 
 export type AssistantMessage = UIMessage<unknown, never, InferUITools<ReturnType<typeof makeTools>>>;
 
-const system = (n: { title: string; sourceLanguage: string; targetLanguage: string }, done: number) => `You help edit the ${n.targetLanguage} translation of the web novel "${n.title}" (translated from ${n.sourceLanguage}; ${done} chapters translated). The user asks for changes across chapters, most often to replace an old translation of a name or term with a new one.
+// Nothing here may change during a conversation: Anthropic binds thinking blocks to the system prompt.
+const system = (n: { title: string; sourceLanguage: string; targetLanguage: string }) => `You help edit the ${n.targetLanguage} translation of the web novel "${n.title}" (translated from ${n.sourceLanguage}). The user asks for changes across chapters, most often to replace an old translation of a name or term with a new one.
 
 How to work:
 - Search before you propose. A name appears in many grammatical forms (cases, number, adjective forms) and in older variants; search by stems with a regex (unicode mode, e.g. "Тяньлан\\p{L}*") and look at the "forms" of the result to see every spelling. search_sources tells which chapters mention the original name, so you can look for chapters where the translation went its own way.
@@ -47,16 +48,19 @@ How to work:
 - Edits that come back with an error were not valid; fix them in the next batch.
 - Talk to the user in the language they write in. Be brief: say what you found (counts, forms) and what you propose.`;
 
+/**
+ * Earlier turns go back without their reasoning. Every request starts at a user message, so no tool
+ * loop is open and the provider does not need them; signed thinking blocks would also be rejected
+ * as soon as anything in the system prompt changed (the novel was renamed, for example).
+ */
+const withoutReasoning = (messages: AssistantMessage[]) => messages.map((m) => ({ ...m, parts: m.parts.filter((p) => p.type !== "reasoning") }));
+
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
     // useChat shows a failed response's body as the error, so errors go out as plain text
     if (!(await getSession())) return new Response("Not signed in", { status: 401 });
     const novelId = Number((await params).id);
     const [n] = await db.select().from(novel).where(eq(novel.id, novelId));
     if (!n) return new Response("Novel not found", { status: 404 });
-    const [{ done }] = await db
-        .select({ done: count() })
-        .from(chapter)
-        .where(and(eq(chapter.novelId, novelId), eq(chapter.status, "done")));
     const { messages } = (await req.json()) as { messages: AssistantMessage[] };
 
     let model;
@@ -68,8 +72,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const tools = makeTools(db, novelId);
     const result = streamText({
         model: model.setup.model,
-        system: system(n, done),
-        messages: await convertToModelMessages(messages, { tools }),
+        system: system(n),
+        messages: await convertToModelMessages(withoutReasoning(messages), { tools }),
         tools,
         providerOptions: model.setup.providerOptions,
         stopWhen: [stepCountIs(40), hasToolCall("propose_edits")],
