@@ -6,6 +6,13 @@ import { DECISION_MODES, chapter, novel } from "@/db/schema";
 import { decrypt } from "@/lib/crypto";
 import { getSetting } from "./settings";
 
+const ModelChoice = z.object({
+    providerKeyId: z.number().int().nullable(),
+    model: z.string(),
+    effort: z.enum(EFFORTS).nullable(),
+});
+export type ModelChoice = z.infer<typeof ModelChoice>;
+
 /** Instance-wide settings an admin changes in Settings → Instance; the worker reads them live. */
 export const InstanceSchema = z.object({
     /** Novels translating at the same time across all workers. */
@@ -19,11 +26,9 @@ export const InstanceSchema = z.object({
         askNew: z.object({ types: z.array(z.enum(TERM_TYPES)).optional(), untilChapter: z.number().int().optional() }).nullable(),
     }),
     /** The model for small helper tasks (suggesting cleanup patterns…), not for translation. */
-    service: z.object({
-        providerKeyId: z.number().int().nullable(),
-        model: z.string(),
-        effort: z.enum(EFFORTS).nullable(),
-    }),
+    service: ModelChoice,
+    /** The chat assistant that searches and edits translations; without a key the service model answers. */
+    assistant: ModelChoice,
 });
 export type InstanceConfig = z.infer<typeof InstanceSchema>;
 
@@ -34,13 +39,14 @@ export function instanceDefaults(): InstanceConfig {
         concurrency: Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 2)),
         defaults: { sourceLanguage: "English", targetLanguage: "Ukrainian", providerKeyId: null, model: "", decisionMode: "queue", askNew: null as AskNewPolicy | null },
         service: { providerKeyId: null, model: "", effort: null },
+        assistant: { providerKeyId: null, model: "", effort: null },
     };
 }
 
 export async function instanceConfig(db: DB): Promise<InstanceConfig> {
     const fallback = instanceDefaults();
     const saved = await getSetting<Partial<InstanceConfig>>(db, INSTANCE_KEY, {});
-    return { ...fallback, ...saved, defaults: { ...fallback.defaults, ...(saved.defaults ?? {}) }, service: { ...fallback.service, ...(saved.service ?? {}) } };
+    return { ...fallback, ...saved, defaults: { ...fallback.defaults, ...(saved.defaults ?? {}) }, service: { ...fallback.service, ...(saved.service ?? {}) }, assistant: { ...fallback.assistant, ...(saved.assistant ?? {}) } };
 }
 
 export const TELEGRAM_KEY = "telegram";

@@ -30,6 +30,7 @@ const REPLACED: Record<string, string> = {
     reset: "removed by a reset",
     restore: "replaced by a restore",
     replace: "replaced by find and replace",
+    assistant: "replaced by an assistant edit",
 };
 
 /** The first / last `n` characters of a text, cut at a word boundary. */

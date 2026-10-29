@@ -8,28 +8,30 @@ import { providerKey, usageRecord } from "@/db/schema";
 import { decrypt } from "@/lib/crypto";
 import { instanceConfig } from "./instance";
 
-/**
- * Asks the service model (Settings → Instance) for a structured answer. Its usage is recorded
- * like translation requests, against the novel it was for and without a chapter.
- */
-export async function askServiceModel<T>(db: DB, opts: { system: string; prompt: string; schema: z.ZodType<T>; novel?: { id: number; title: string } }): Promise<T> {
-    const { service } = await instanceConfig(db);
-    if (!service.providerKeyId) throw new Error("Choose a service model in Settings → Instance first");
-    const [key] = await db.select().from(providerKey).where(eq(providerKey.id, service.providerKeyId));
-    if (!key) throw new Error("The service model's API key was deleted; choose another in Settings → Instance");
-    const config = parseConfig({
-        provider: key.provider as TranslationConfig["provider"],
-        model: service.model || undefined,
-        baseURL: key.baseURL || undefined,
-        effort: service.effort ?? undefined,
-    });
-    const setup = createModel(config, decrypt(key.encryptedKey));
-    const model = resolveModelId(config);
+type Usage = { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number } | undefined;
 
-    const record = (usage: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number } | undefined, ok: boolean) =>
+/**
+ * The service model or the assistant model from Settings → Instance (the assistant falls back to
+ * the service model). `record` stores a request's usage against the novel, without a chapter.
+ */
+export async function helperModel(db: DB, role: "service" | "assistant", novel?: { id: number; title: string }) {
+    const config = await instanceConfig(db);
+    const choice = role === "assistant" && config.assistant.providerKeyId ? config.assistant : config.service;
+    if (!choice.providerKeyId) throw new Error(`Choose ${role === "assistant" ? "an assistant or a service" : "a service"} model in Settings → Instance first`);
+    const [key] = await db.select().from(providerKey).where(eq(providerKey.id, choice.providerKeyId));
+    if (!key) throw new Error("The API key chosen in Settings → Instance was deleted; choose another");
+    const modelConfig = parseConfig({
+        provider: key.provider as TranslationConfig["provider"],
+        model: choice.model || undefined,
+        baseURL: key.baseURL || undefined,
+        effort: choice.effort ?? undefined,
+    });
+    const setup = createModel(modelConfig, decrypt(key.encryptedKey));
+    const model = resolveModelId(modelConfig);
+    const record = (usage: Usage, ok: boolean) =>
         db.insert(usageRecord).values({
-            novelId: opts.novel?.id ?? null,
-            novelTitle: opts.novel?.title ?? "",
+            novelId: novel?.id ?? null,
+            novelTitle: novel?.title ?? "",
             keyId: key.id,
             provider: key.provider,
             model,
@@ -38,7 +40,12 @@ export async function askServiceModel<T>(db: DB, opts: { system: string; prompt:
             outputTokens: usage?.outputTokens ?? 0,
             ok,
         });
+    return { setup, model, record };
+}
 
+/** Asks the service model for a structured answer. */
+export async function askServiceModel<T>(db: DB, opts: { system: string; prompt: string; schema: z.ZodType<T>; novel?: { id: number; title: string } }): Promise<T> {
+    const { setup, record } = await helperModel(db, "service", opts.novel);
     try {
         const res = await generateText({
             model: setup.model,
@@ -51,7 +58,7 @@ export async function askServiceModel<T>(db: DB, opts: { system: string; prompt:
         return res.output;
     } catch (error) {
         // a reply that did not fit the schema was still paid for
-        const usage = (error as { usage?: Parameters<typeof record>[0] }).usage;
+        const usage = (error as { usage?: Usage }).usage;
         if (usage) await record(usage, false);
         throw error;
     }

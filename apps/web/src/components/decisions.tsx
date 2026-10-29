@@ -88,6 +88,13 @@ export function DecisionList({ groups, showNovel, waiting }: { groups: DecisionG
     );
 }
 
+/** The Replace tab's assistant with a task to bring old translations of a term in line with its new one. */
+function assistantLink(novelId: number, source: string, old: string, next: string, chapters: number[]) {
+    const where = chapters.length > 80 ? `${chapters.length} chapters` : `chapters ${chapters.join(", ")}`;
+    const task = `The term “${source}” is now translated as “${next}”; it used to be “${old}”. Find the old translation and any other variants of it, in every grammatical form, in the translated chapters, and propose edits to the new translation in the right form. The source mentions it in ${where}.`;
+    return `/novels/${novelId}/replace?mode=assistant&task=${encodeURIComponent(task)}`;
+}
+
 function DecisionCard({ group: g, showNovel, onDone }: { group: DecisionGroup; showNovel?: boolean; onDone: () => void }) {
     const router = useRouter();
     const [pending, start] = useTransition();
@@ -109,6 +116,7 @@ function DecisionCard({ group: g, showNovel, onDone }: { group: DecisionGroup; s
                     toast(`${g.term.source} → ${applied}`, {
                         description: `${list.length} translated chapters still use “${g.current}”.`,
                         duration: 12000,
+                        cancel: { label: "Fix with the assistant", onClick: () => router.push(assistantLink(g.novelId, g.term.source, g.current, applied, list)) },
                         action: {
                             label: "Translate again",
                             onClick: async () => {
@@ -247,6 +255,7 @@ function NewTermCard({ group: g, showNovel, onDone }: { group: DecisionGroup; sh
                 if (list.length) {
                     toast(`${list.length} translated chapters use the old “${g.term.target}”`, {
                         duration: 12000,
+                        cancel: { label: "Fix with the assistant", onClick: () => router.push(assistantLink(g.novelId, g.term.source, g.term.target, target.trim(), list)) },
                         action: {
                             label: "Translate again",
                             onClick: async () => {

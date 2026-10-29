@@ -5,7 +5,7 @@ import { chapterVersion } from "@/db/schema";
 /** Earlier translations kept per chapter. */
 export const KEEP_VERSIONS = 10;
 
-export type ReplacedBy = "translation" | "edit" | "reset" | "restore" | "replace";
+export type ReplacedBy = "translation" | "edit" | "reset" | "restore" | "replace" | "assistant";
 
 /** Saves the chapter's current text as a version before it is replaced; a chapter without text has nothing to keep. */
 export async function keepVersion(

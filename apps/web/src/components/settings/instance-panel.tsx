@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Gauge, Loader2, Sparkles } from "lucide-react";
+import { Gauge, Loader2, MessagesSquare, Sparkles } from "lucide-react";
 import { EFFORTS, PROVIDER_DEFAULTS, type AskNewPolicy, type Provider } from "@ranobe-tl/core";
 import { AskNewPicker, DecisionModePicker, Field, ModelPicker, type KeyOption } from "@/components/novel/novel-form";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { DecisionMode } from "@/db/schema";
 import { saveInstance } from "@/server/actions/instance";
-import type { InstanceConfig } from "@/server/instance";
+import type { InstanceConfig, ModelChoice } from "@/server/instance";
 
 export function InstancePanel({ config, keys, isAdmin }: { config: InstanceConfig; keys: KeyOption[]; isAdmin: boolean }) {
     const router = useRouter();
@@ -21,9 +21,6 @@ export function InstancePanel({ config, keys, isAdmin }: { config: InstanceConfi
     const [keyId, setKeyId] = useState(d.providerKeyId ? String(d.providerKeyId) : "none");
     const [mode, setMode] = useState<DecisionMode>(d.decisionMode);
     const [askNew, setAskNew] = useState<AskNewPolicy | null>(d.askNew);
-    const [serviceKeyId, setServiceKeyId] = useState(config.service.providerKeyId ? String(config.service.providerKeyId) : "none");
-    const [serviceEffort, setServiceEffort] = useState<string>(config.service.effort ?? "default");
-    const serviceKey = keys.find((k) => String(k.id) === serviceKeyId);
 
     return (
         <form
@@ -42,11 +39,8 @@ export function InstancePanel({ config, keys, isAdmin }: { config: InstanceConfi
                             decisionMode: mode,
                             askNew,
                         },
-                        service: {
-                            providerKeyId: serviceKeyId === "none" ? null : Number(serviceKeyId),
-                            model: String(f.get("serviceModel") ?? "").trim(),
-                            effort: serviceEffort === "default" ? null : (serviceEffort as (typeof EFFORTS)[number]),
-                        },
+                        service: readChoice(f, "service"),
+                        assistant: readChoice(f, "assistant"),
                     });
                     if (!res.ok) return void toast.error(res.error);
                     toast.success(res.message ?? "Saved");
@@ -113,64 +107,26 @@ export function InstancePanel({ config, keys, isAdmin }: { config: InstanceConfi
                 <AskNewPicker value={askNew} onChange={setAskNew} />
             </section>
 
-            <section className="grid gap-5 rounded-xl border bg-card p-6 shadow-xs">
-                <div className="flex gap-3">
-                    <Sparkles className="mt-0.5 size-4 shrink-0 text-brand" />
-                    <div>
-                        <h2 className="font-medium">Service model</h2>
-                        <p className="text-sm text-muted-foreground">
-                            Does small jobs around the translation, such as writing cleanup patterns from a description (the ✨ button in a novel&apos;s settings). A small, cheap model is enough.
-                            Its requests count in Usage like any other.
-                        </p>
-                    </div>
-                </div>
-                <div className="grid gap-5 sm:grid-cols-3">
-                    <Field label="API key">
-                        <Select
-                            value={serviceKeyId}
-                            onValueChange={(v) => v && setServiceKeyId(v)}
-                            disabled={!isAdmin}
-                            items={{ none: "Not set", ...Object.fromEntries(keys.map((k) => [String(k.id), `${k.name} · ${PROVIDER_DEFAULTS[k.provider as Provider]?.label ?? k.provider}`])) }}
-                        >
-                            <SelectTrigger className="w-full">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="none">Not set</SelectItem>
-                                {keys.map((k) => (
-                                    <SelectItem key={k.id} value={String(k.id)}>
-                                        {k.name} · {PROVIDER_DEFAULTS[k.provider as Provider]?.label ?? k.provider}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </Field>
-                    <Field label="Model" hint={serviceKey && !PROVIDER_DEFAULTS[serviceKey.provider as Provider]?.model ? "Required for this provider." : undefined}>
-                        <ModelPicker
-                            name="serviceModel"
-                            keyId={serviceKey ? serviceKeyId : ""}
-                            provider={serviceKey?.provider}
-                            defaultModel={serviceKey ? PROVIDER_DEFAULTS[serviceKey.provider as Provider]?.model : undefined}
-                            initial={config.service.model}
-                        />
-                    </Field>
-                    <Field label="Reasoning effort" hint="OpenAI / Anthropic.">
-                        <Select value={serviceEffort} onValueChange={(v) => v && setServiceEffort(v)} disabled={!isAdmin} items={{ default: "Model default", ...Object.fromEntries(EFFORTS.map((x) => [x, x])) }}>
-                            <SelectTrigger className="w-full">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="default">Model default</SelectItem>
-                                {EFFORTS.map((x) => (
-                                    <SelectItem key={x} value={x}>
-                                        {x}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </Field>
-                </div>
-            </section>
+            <ModelChoiceSection
+                icon={Sparkles}
+                title="Service model"
+                description="Does small jobs around the translation, such as writing cleanup patterns from a description (the ✨ button in a novel's settings). A small, cheap model is enough. Its requests count in Usage like any other."
+                name="service"
+                choice={config.service}
+                keys={keys}
+                isAdmin={isAdmin}
+                noKey="Not set"
+            />
+            <ModelChoiceSection
+                icon={MessagesSquare}
+                title="Assistant model"
+                description="Chats in a novel's Replace tab: searches the translations and proposes edits for you to confirm (fixing an old term in every grammatical form, for example). It has to use tools and know the target language well, so a capable model pays off."
+                name="assistant"
+                choice={config.assistant}
+                keys={keys}
+                isAdmin={isAdmin}
+                noKey="The service model"
+            />
 
             {isAdmin && (
                 <div className="flex justify-end">
@@ -181,5 +137,89 @@ export function InstancePanel({ config, keys, isAdmin }: { config: InstanceConfi
                 </div>
             )}
         </form>
+    );
+}
+
+/** The fields of ModelChoiceSection come back as `<name>Key`, `<name>Model` and `<name>Effort`. */
+function readChoice(f: FormData, name: string): ModelChoice {
+    const key = String(f.get(`${name}Key`) ?? "none");
+    const effort = String(f.get(`${name}Effort`) ?? "default");
+    return {
+        providerKeyId: key === "none" ? null : Number(key),
+        model: String(f.get(`${name}Model`) ?? "").trim(),
+        effort: effort === "default" ? null : (effort as ModelChoice["effort"]),
+    };
+}
+
+function ModelChoiceSection(props: {
+    icon: React.ComponentType<{ className?: string }>;
+    title: string;
+    description: string;
+    name: string;
+    choice: ModelChoice;
+    keys: KeyOption[];
+    isAdmin: boolean;
+    /** What happens without a key. */
+    noKey: string;
+}) {
+    const { icon: Icon, name, keys, isAdmin } = props;
+    const [keyId, setKeyId] = useState(props.choice.providerKeyId ? String(props.choice.providerKeyId) : "none");
+    const [effort, setEffort] = useState<string>(props.choice.effort ?? "default");
+    const key = keys.find((k) => String(k.id) === keyId);
+    const label = (k: KeyOption) => `${k.name} · ${PROVIDER_DEFAULTS[k.provider as Provider]?.label ?? k.provider}`;
+
+    return (
+        <section className="grid gap-5 rounded-xl border bg-card p-6 shadow-xs">
+            <input type="hidden" name={`${name}Key`} value={keyId} />
+            <input type="hidden" name={`${name}Effort`} value={effort} />
+            <div className="flex gap-3">
+                <Icon className="mt-0.5 size-4 shrink-0 text-brand" />
+                <div>
+                    <h2 className="font-medium">{props.title}</h2>
+                    <p className="text-sm text-muted-foreground">{props.description}</p>
+                </div>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-3">
+                <Field label="API key">
+                    <Select value={keyId} onValueChange={(v) => v && setKeyId(v)} disabled={!isAdmin} items={{ none: props.noKey, ...Object.fromEntries(keys.map((k) => [String(k.id), label(k)])) }}>
+                        <SelectTrigger className="w-full">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="none">{props.noKey}</SelectItem>
+                            {keys.map((k) => (
+                                <SelectItem key={k.id} value={String(k.id)}>
+                                    {label(k)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </Field>
+                <Field label="Model" hint={key && !PROVIDER_DEFAULTS[key.provider as Provider]?.model ? "Required for this provider." : undefined}>
+                    <ModelPicker
+                        name={`${name}Model`}
+                        keyId={key ? keyId : ""}
+                        provider={key?.provider}
+                        defaultModel={key ? PROVIDER_DEFAULTS[key.provider as Provider]?.model : undefined}
+                        initial={props.choice.model}
+                    />
+                </Field>
+                <Field label="Reasoning effort" hint="OpenAI / Anthropic.">
+                    <Select value={effort} onValueChange={(v) => v && setEffort(v)} disabled={!isAdmin} items={{ default: "Model default", ...Object.fromEntries(EFFORTS.map((x) => [x, x])) }}>
+                        <SelectTrigger className="w-full">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="default">Model default</SelectItem>
+                            {EFFORTS.map((x) => (
+                                <SelectItem key={x} value={x}>
+                                    {x}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </Field>
+            </div>
+        </section>
     );
 }
