@@ -69,7 +69,8 @@ jobs:
                   cache-from: type=gha
                   cache-to: type=gha,mode=max
 
-    # A GitHub release with a compose.yml pinned to this version, for:
+    # Attaches a compose.yml pinned to this version to the tag's GitHub release (made on GitHub,
+    # or created here when only the tag was pushed), for:
     #   curl -fsSLO https://github.com/<owner>/ranobe-tl/releases/latest/download/compose.yml
     release:
         needs: image
@@ -91,7 +92,12 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
-                  prerelease=""
-                  case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
-                  gh release create "$GITHUB_REF_NAME" release/compose.yml release/env.example \
-                      --title "$GITHUB_REF_NAME" --generate-notes --verify-tag $prerelease
+                  # a release made on GitHub already exists: only attach the files to it
+                  if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+                      gh release upload "$GITHUB_REF_NAME" release/compose.yml release/env.example --clobber
+                  else
+                      prerelease=""
+                      case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+                      gh release create "$GITHUB_REF_NAME" release/compose.yml release/env.example \
+                          --title "$GITHUB_REF_NAME" --generate-notes --verify-tag $prerelease
+                  fi
