@@ -26,6 +26,25 @@ export function DecisionList({ groups, showNovel, waiting }: { groups: DecisionG
     const visible = groups.filter((g) => !done.has(g.key));
 
     const markDone = (key: string) => setDone((s) => new Set(s).add(key));
+    const newTerms = visible.filter((g) => g.field === "new");
+    const changes = visible.filter((g) => g.field !== "new");
+
+    /** New terms are confirmed as proposed, changes keep the current value: nothing in the glossary changes. */
+    const decideAll = (list: DecisionGroup[], message: string) =>
+        startBulk(async () => {
+            let resumed = false;
+            for (const g of list) {
+                const res = await decideChange({ novelId: g.novelId, termId: g.term.id, field: g.field, useChangeId: null });
+                if (!res.ok) {
+                    toast.error(`${g.term.source}: ${res.error}`);
+                    continue;
+                }
+                markDone(g.key);
+                resumed ||= !!res.data?.resumed;
+            }
+            toast.success(resumed ? `${message}, the translation continues` : message);
+            router.refresh();
+        });
 
     if (!visible.length) {
         return <EmptyState icon={Inbox} title="Nothing to decide" description="When the model proposes changing a term that is already in the glossary (or finds a new one, if new terms are reviewed for this novel), it shows up here and in Telegram, if you linked it." />;
@@ -39,28 +58,24 @@ export function DecisionList({ groups, showNovel, waiting }: { groups: DecisionG
                     The translation waits for these decisions. It continues on its own once the chapter&apos;s proposals are decided.
                 </div>
             )}
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
                 <span>
                     {visible.length} {visible.length === 1 ? "term" : "terms"} to decide
                 </span>
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={bulk}
-                    onClick={() =>
-                        startBulk(async () => {
-                            for (const g of visible) {
-                                const res = await decideChange({ novelId: g.novelId, termId: g.term.id, field: g.field, useChangeId: null });
-                                if (res.ok) markDone(g.key);
-                            }
-                            toast.success("The glossary stays as it is");
-                            router.refresh();
-                        })
-                    }
-                >
-                    {bulk ? <Loader2 className="animate-spin" /> : <Undo2 />}
-                    Keep everything as it is
-                </Button>
+                <div className="flex flex-wrap gap-1">
+                    {newTerms.length > 0 && (
+                        <Button variant="ghost" size="sm" disabled={bulk} onClick={() => decideAll(newTerms, `${newTerms.length} new ${newTerms.length === 1 ? "term" : "terms"} confirmed`)}>
+                            {bulk ? <Loader2 className="animate-spin" /> : <CheckCheck />}
+                            Confirm all new terms{changes.length ? ` (${newTerms.length})` : ""}
+                        </Button>
+                    )}
+                    {changes.length > 0 && (
+                        <Button variant="ghost" size="sm" disabled={bulk} onClick={() => decideAll(changes, "The glossary stays as it is")}>
+                            {bulk ? <Loader2 className="animate-spin" /> : <Undo2 />}
+                            Keep current values{newTerms.length ? ` (${changes.length})` : ""}
+                        </Button>
+                    )}
+                </div>
             </div>
             {visible.map((g) =>
                 g.field === "new" ? (

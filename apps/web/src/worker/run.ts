@@ -1,8 +1,8 @@
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
-import { Glossary, createModel, describeEvent, resolveModelId, type PendingHandler, type TranslatorEvent } from "@ranobe-tl/core";
+import { Glossary, createModel, describeEvent, genderAt, resolveModelId, type ChapterDraft, type PendingHandler, type TranslatorEvent } from "@ranobe-tl/core";
 import { Translator } from "@ranobe-tl/core";
 import type { DB } from "@/db";
-import { chapter, exchange, novel, providerKey, termChange, usageRecord } from "@/db/schema";
+import { chapter, exchange, novel, providerKey, termChange, usageRecord, type DraftTerm } from "@/db/schema";
 import { decrypt } from "@/lib/crypto";
 import { logEvent } from "@/server/activity";
 import { budgetStop } from "@/server/budget";
@@ -156,7 +156,7 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
     const started = Date.now();
     let result;
     try {
-        result = await translator.translateChapter(ch.index, ch.source);
+        result = await translator.translateChapter(ch.index, ch.source, await usableDraft(store, ch));
     } catch (error) {
         clearInterval(poll);
         if (abort.signal.aborted) {
@@ -206,6 +206,7 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
                     model,
                     duration,
                     translatedAt: new Date(),
+                    draft: null,
                     ...tokens,
                 })
                 .where(eq(chapter.id, ch.id));
@@ -214,13 +215,13 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
             await logEvent(db, novelId, "success", `chapter ${ch.index} translated in ${duration}s (${result.attempts} ${result.attempts === 1 ? "request" : "requests"})`, ch.index);
             break;
         case "skipped":
-            await db.update(chapter).set({ status: "skipped", error: result.reason, model }).where(eq(chapter.id, ch.id));
+            await db.update(chapter).set({ status: "skipped", error: result.reason, model, draft: null }).where(eq(chapter.id, ch.id));
             await logEvent(db, novelId, "warning", `chapter ${ch.index} skipped: ${result.reason}`, ch.index);
             break;
         case "failed": {
             await db
                 .update(chapter)
-                .set({ status: "failed", error: result.reason, attempts: result.attempts, model, duration, ...tokens })
+                .set({ status: "failed", error: result.reason, attempts: result.attempts, model, duration, draft: null, ...tokens })
                 .where(eq(chapter.id, ch.id));
             const [{ failStreak }] = await db
                 .update(novel)
@@ -235,7 +236,13 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
             break;
         }
         case "paused": {
-            await db.update(chapter).set({ status: "queued" }).where(eq(chapter.id, ch.id));
+            // the terms of the paused chunk as the model used them, to tell on resume whether a decision changed them
+            const terms: DraftTerm[] = [];
+            for (const id of new Set(result.pending.map((p) => p.term.id))) {
+                const t = await store.getTerm(id);
+                if (t) terms.push({ id, source: t.source, target: t.target, gender: genderAt(t, ch.index) ?? null });
+            }
+            await db.update(chapter).set({ status: "queued", draft: { ...result.draft, terms } }).where(eq(chapter.id, ch.id));
             await db
                 .update(novel)
                 .set({ status: "waiting", statusMessage: `Waiting for glossary decisions in chapter ${ch.index}` })
@@ -260,6 +267,26 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
         return "stop";
     }
     return "next";
+}
+
+/**
+ * The draft of an earlier pause, cut before the first chunk that uses a term the decisions changed
+ * (another translation or gender, or removed as "not a term"). Accepting everything as proposed keeps it whole.
+ */
+async function usableDraft(store: PgGlossaryStore, ch: typeof chapter.$inferSelect): Promise<ChapterDraft | undefined> {
+    const draft = ch.draft;
+    if (!draft?.parts.length) return undefined;
+    const changed: DraftTerm[] = [];
+    for (const before of draft.terms) {
+        const now = await store.getTerm(before.id);
+        if (!now || now.target !== before.target || (genderAt(now, ch.index) ?? null) !== before.gender) changed.push(before);
+    }
+    if (!changed.length) return draft;
+    const uses = (source: string) => changed.some((t) => source.toLowerCase().includes(t.source.toLowerCase()));
+    const first = draft.sources.findIndex(uses);
+    // not found by plain text: at least the paused chunk is translated again
+    const keep = first === -1 ? draft.parts.length - 1 : first;
+    return { ...draft, sources: draft.sources.slice(0, keep), parts: draft.parts.slice(0, keep) };
 }
 
 async function halt(db: DB, n: typeof novel.$inferSelect, notifier: Notifier, reason: string): Promise<StepOutcome> {

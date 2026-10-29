@@ -166,6 +166,47 @@ test("translator: a pause stops the chapter, the proposals stay pending", async 
     assert.equal((await store.listChanges("pending")).length, 2);
 });
 
+test("translator: a draft from a pause is reused, only the chunks after it are translated", async () => {
+    const store = await storeWithTowerAndZhao();
+    const paragraph = "Zhao Yun walked into the Sky Tower and looked around for a long while. ".repeat(20);
+    // three chunks of ~1400 characters
+    const source = `Chapter 5\n\n${paragraph}\n\n${paragraph}\n\n${paragraph}`;
+    const config = parseConfig({ chunkSize: 1500 });
+    let calls = 0;
+    const model = new MockLanguageModelV3({
+        doGenerate: async () => {
+            calls++;
+            // the second chunk proposes changes the first time
+            const terms = calls === 2 ? proposals : "[]";
+            return reply(`<title>Розділ 5</title>\n<translation>\n${proseWith(`Небесної Вежі ${calls}`)}\n</translation>\n<terms>${terms}</terms>`);
+        },
+    });
+    const paused = await new Translator(config, setup(model), await Glossary.load(store), { onPending: async () => "pause" }).translateChapter(5, source);
+    assert.equal(paused.status, "paused");
+    if (paused.status !== "paused") return;
+    assert.equal(paused.draft.parts.length, 2, "the paused chunk is part of the draft");
+    assert.equal(paused.draft.title, "Розділ 5");
+    assert.deepEqual(paused.pending.map((p) => p.term.source).sort(), ["Sky Tower", "Zhao Yun"]);
+
+    const events: string[] = [];
+    const res = await new Translator(config, setup(model), await Glossary.load(store), {
+        onPending: async () => "pause",
+        onEvent: (e) => void events.push(e.type),
+    }).translateChapter(5, source, paused.draft);
+    assert.equal(res.status, "done");
+    assert.equal(calls, 3, "only the third chunk is translated");
+    assert.equal(events[0], "draft-reused");
+    if (res.status === "done") {
+        assert.match(res.content, /Вежі 1.*Вежі 2.*Вежі 3/s);
+        assert.equal(res.title, "Розділ 5");
+    }
+
+    // a changed source makes the draft useless from that chunk on
+    const changed = `Chapter 5\n\n${paragraph}\n\n${paragraph.replace("Sky", "Moon")}\n\n${paragraph}`;
+    await new Translator(config, setup(model), await Glossary.load(store)).translateChapter(5, changed, paused.draft);
+    assert.equal(calls, 5);
+});
+
 test("translator: every request reports its own usage", async () => {
     const source = "Title\n\n" + "Some text here. ".repeat(100);
     const model = new MockLanguageModelV3({ doGenerate: async () => reply("no translation block") });

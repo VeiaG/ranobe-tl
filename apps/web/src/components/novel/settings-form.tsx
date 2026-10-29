@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { ChevronDown, Loader2 } from "lucide-react";
 import { EFFORTS } from "@ranobe-tl/core";
-import { Field } from "@/components/novel/novel-form";
+import { Field, FormSection } from "@/components/novel/novel-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -80,11 +80,7 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
 
     return (
         <form onSubmit={onSubmit} className="grid gap-8">
-            <section className="grid gap-5">
-                <div>
-                    <h2 className="font-medium">Translation</h2>
-                    <p className="text-sm text-muted-foreground">How the model is asked. Changes apply from the next chapter.</p>
-                </div>
+            <FormSection title="Translation" description="How the model is asked. Changes apply from the next chapter.">
                 <Field label="Extra instructions" htmlFor="instructions" hint="Appended to the system prompt: style, honorifics, how to treat system messages in brackets…">
                     <Textarea id="instructions" name="instructions" defaultValue={settings.instructions} rows={4} className="min-h-24" placeholder="Keep Korean honorifics like -nim. Status windows in [brackets] stay in brackets." />
                 </Field>
@@ -114,17 +110,17 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
                         <Input id="maxAttempts" name="maxAttempts" type="number" min={1} max={10} defaultValue={settings.maxAttempts} placeholder={String(defaults.maxAttempts)} />
                     </Field>
                 </div>
-            </section>
+            </FormSection>
 
-            <section className="grid gap-5">
-                <button type="button" onClick={() => setAdvanced((a) => !a)} className="flex items-center justify-between text-left">
+            <section className="grid gap-5 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:gap-10">
+                <button type="button" onClick={() => setAdvanced((a) => !a)} className="flex items-start justify-between gap-3 self-start text-left">
                     <span>
                         <span className="block font-medium">Chunks, cleanup and validation</span>
-                        <span className="block text-sm text-muted-foreground">Defaults work for most novels.</span>
+                        <span className="mt-1 block text-sm text-muted-foreground">Defaults work for most novels.</span>
                     </span>
                     <ChevronDown className={cn("size-4 text-muted-foreground transition-transform", advanced && "rotate-180")} />
                 </button>
-                <div className={cn("grid gap-5", !advanced && "hidden")}>
+                <div className={cn("grid min-w-0 content-start gap-5", !advanced && "hidden")}>
                     <div className="grid gap-5 sm:grid-cols-3">
                         <Field label="Chunk size" htmlFor="chunkSize" hint="Characters per request. Long chunks make models summarize.">
                             <Input id="chunkSize" name="chunkSize" type="number" min={1000} defaultValue={settings.chunkSize} placeholder={String(defaults.chunkSize)} />

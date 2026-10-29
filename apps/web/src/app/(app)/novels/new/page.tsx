@@ -12,7 +12,7 @@ export const metadata = { title: "New novel" };
 export default async function NewNovelPage() {
     const [keys, { defaults }, novels] = await Promise.all([listKeys(), instanceConfig(db), listNovels()]);
     return (
-        <Page className="max-w-3xl">
+        <Page className="max-w-5xl">
             <PageHeader
                 title="New novel"
                 description="Set it up once; chapters come next."

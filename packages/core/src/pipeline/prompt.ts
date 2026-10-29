@@ -18,7 +18,7 @@ Translate the text inside <source> completely and faithfully: every paragraph, e
 ## Glossary
 The user message contains a glossary of terms found in this text, formatted as:
   source → translation [type, gender, note]
-Use these translations consistently, declined/conjugated as ${to} grammar requires. The bracketed part is reference information only: never copy it into the translation. Gender tells you which grammatical gender to use for that character (m = male, f = female).
+Use these translations consistently, declined/conjugated as ${to} grammar requires. An entry stands for the meaning its type and note describe: when the source uses the same word in another, ordinary sense (e.g. a term for an item used as a plain verb or a common noun), translate that occurrence naturally and do not list it in <terms> as a proposed change. The bracketed part is reference information only: never copy it into the translation. Gender tells you which grammatical gender to use for that character (m = male, f = female).
 Letter case is not part of a glossary entry: follow the source at each occurrence. If the source writes the term with a capital letter, capitalize the translation; if the source writes it in lowercase (e.g. a material or a common noun), write the translation in lowercase too, except at the start of a sentence.
 
 ## Output format

@@ -2,12 +2,12 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { runMigrations } from "@/db/migrate";
 import { novel } from "@/db/schema";
-import { SYNC_ALL_QUEUE, SYNC_NOVEL_QUEUE, TRANSLATE_QUEUE, enqueueNovel, getBoss, type TranslateJob } from "@/server/queue";
+import { DECIDED_QUEUE, SYNC_ALL_QUEUE, SYNC_NOVEL_QUEUE, TRANSLATE_QUEUE, enqueueNovel, getBoss, type DecidedJob, type TranslateJob } from "@/server/queue";
 import { runSync } from "@/server/storage/sync";
 import { instanceConfig, telegramToken } from "@/server/instance";
 import { combine, type Notifier } from "./notify";
 import { translateNext } from "./run";
-import { createTelegram } from "./telegram";
+import { createTelegram, type Telegram } from "./telegram";
 
 /**
  * Job slots of this worker. The real limit of novels translating at once is set in
@@ -21,7 +21,7 @@ const TOKEN_CHECK_MS = 30_000;
 
 /** Runs the Telegram bot for the current token and restarts it when the token changes. */
 function telegramController() {
-    let current: { token: string; notifier: Notifier; stop: () => Promise<void> } | null = null;
+    let current: { token: string; telegram: Telegram; stop: () => Promise<void> } | null = null;
 
     async function apply(token: string | null) {
         if (token === (current?.token ?? null)) return;
@@ -35,7 +35,7 @@ function telegramController() {
             return;
         }
         const telegram = createTelegram(db, token);
-        const self = { token, notifier: telegram.notifier, stop: () => telegram.bot.stop() };
+        const self = { token, telegram, stop: () => telegram.bot.stop() };
         // long polling: no public URL needed, works behind NAT (a Raspberry Pi at home)
         telegram.bot
             .start({ drop_pending_updates: false, onStart: (me) => console.log(`[telegram] @${me.username} is listening`) })
@@ -56,7 +56,7 @@ function telegramController() {
 
     // the run keeps one notifier; it forwards to whichever bot is live
     const relay = (name: keyof Notifier) => async (...args: any[]) => {
-        if (current) await (current.notifier[name] as (...a: any[]) => Promise<void>)(...args);
+        if (current) await (current.telegram.notifier[name] as (...a: any[]) => Promise<void>)(...args);
     };
     const notifier: Notifier = combine({
         decisionsNeeded: relay("decisionsNeeded"),
@@ -64,7 +64,11 @@ function telegramController() {
         runHalted: relay("runHalted"),
         finished: relay("finished"),
     });
-    return { notifier, apply, stop: () => current?.stop() ?? Promise.resolve() };
+    // without a bot there are no messages to close
+    const decided = async (job: DecidedJob) => {
+        if (current) await current.telegram.decided(job);
+    };
+    return { notifier, decided, apply, stop: () => current?.stop() ?? Promise.resolve() };
 }
 
 async function main() {
@@ -96,6 +100,9 @@ async function main() {
     });
     await boss.work(SYNC_ALL_QUEUE, async () => {
         await runSync(db);
+    });
+    await boss.work<DecidedJob>(DECIDED_QUEUE, async ([job]) => {
+        await telegram.decided(job.data);
     });
     // nightly check of every novel, catches anything a debounced sync missed
     await boss.schedule(SYNC_ALL_QUEUE, process.env.BACKUP_CRON || "17 3 * * *", {}, { singletonKey: "all", tz: process.env.TZ || "UTC" });

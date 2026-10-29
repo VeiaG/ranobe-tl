@@ -4,7 +4,7 @@ import type { DB } from "@/db";
 import { chapter, novel, term, termChange, termGender } from "@/db/schema";
 import { logEvent } from "./activity";
 import { PgGlossaryStore } from "./glossary-store";
-import { enqueueNovel, requestSync } from "./queue";
+import { announceDecision, enqueueNovel, requestSync } from "./queue";
 
 export interface DecisionInput {
     novelId: number;
@@ -88,7 +88,9 @@ export async function decide(db: DB, input: DecisionInput): Promise<DecisionResu
         const res = await decideNew(db, input);
         await requestSync(input.novelId);
         await logEvent(db, input.novelId, "info", res.removed ? `${res.term}: removed, not a term` : `${res.term} → ${res.applied}: new term confirmed`);
-        return { ...res, resumed: await resumeIfDecided(db, input.novelId) };
+        const resumed = await resumeIfDecided(db, input.novelId);
+        await announceDecision({ termId: input.termId, field: input.field, what: res.removed ? "not a term, removed" : `confirmed → ${res.applied}`, resumed });
+        return { ...res, resumed };
     }
     const result = await db.transaction(async (tx) => {
         const [t] = await tx
@@ -152,6 +154,12 @@ export async function decide(db: DB, input: DecisionInput): Promise<DecisionResu
     );
     await requestSync(input.novelId);
     const resumed = await resumeIfDecided(db, input.novelId);
+    await announceDecision({
+        termId: input.termId,
+        field: input.field,
+        what: result.applied === null ? "kept the current value" : `→ ${result.applied}`,
+        resumed,
+    });
     return { ...result, resumed };
 }
 

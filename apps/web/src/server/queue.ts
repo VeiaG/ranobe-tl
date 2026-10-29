@@ -1,3 +1,4 @@
+import type { ChangeField } from "@ranobe-tl/core";
 import { PgBoss } from "pg-boss";
 import { databaseUrl } from "@/db";
 
@@ -12,6 +13,18 @@ export const SYNC_NOVEL_QUEUE = "storage-sync-novel";
 /** Checks every novel; runs nightly and on "Sync now". */
 export const SYNC_ALL_QUEUE = "storage-sync-all";
 const SYNC_DELAY_SECONDS = 60;
+/** A glossary decision was made: the worker closes the Telegram messages still showing its buttons. */
+export const DECIDED_QUEUE = "decision-made";
+
+export interface DecidedJob {
+    termId: number;
+    field: ChangeField;
+    /** What was decided, e.g. "→ Вежа Неба" or "kept the current value". */
+    what: string;
+    resumed: boolean;
+    /** Messages sent after this are about newer proposals and stay open. */
+    decidedAt: string;
+}
 
 const globalForBoss = globalThis as unknown as { boss?: Promise<PgBoss> };
 
@@ -46,6 +59,7 @@ export function getBoss(role: "web" | "worker" = "web"): Promise<PgBoss> {
         // "stately": while one sync of a novel waits, more requests for it are dropped (a debounce)
         await create(SYNC_NOVEL_QUEUE, { policy: "stately", expireInSeconds: 3600, retryLimit: 3, retryDelay: 120, retryBackoff: true });
         await create(SYNC_ALL_QUEUE, { policy: "stately", expireInSeconds: 6 * 3600, retryLimit: 1 });
+        await create(DECIDED_QUEUE, { expireInSeconds: 600, retryLimit: 2, retryDelay: 10, deleteAfterSeconds: 24 * 3600 });
         return boss;
     })();
     return globalForBoss.boss;
@@ -72,4 +86,14 @@ export async function requestSync(novelId: number, role: "web" | "worker" = "web
 export async function requestFullSync(): Promise<void> {
     const boss = await getBoss("web");
     await boss.send(SYNC_ALL_QUEUE, {}, { singletonKey: "all" });
+}
+
+/** Tells the worker a decision was made. Never throws: a stale Telegram button must not break a decision. */
+export async function announceDecision(job: Omit<DecidedJob, "decidedAt">, role: "web" | "worker" = "web"): Promise<void> {
+    try {
+        const boss = await getBoss(role);
+        await boss.send(DECIDED_QUEUE, { ...job, decidedAt: new Date().toISOString() } satisfies DecidedJob);
+    } catch (error) {
+        console.error("[telegram] could not queue a decision update:", error);
+    }
 }
