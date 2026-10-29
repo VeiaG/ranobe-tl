@@ -1,54 +1,23 @@
 {
   "name": "ranobe-tl",
-  "version": "0.1.8",
-  "description": "LLM pipeline for translating web novels chapter by chapter with a growing glossary",
+  "private": true,
+  "version": "0.2.0",
+  "description": "Self-hosted web app for translating web novels chapter by chapter with an LLM and a growing glossary",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/VeiaG/ranobe-tl.git"
   },
-  "homepage": "https://github.com/VeiaG/ranobe-tl#readme",
-  "bugs": {
-    "url": "https://github.com/VeiaG/ranobe-tl/issues"
-  },
-  "bin": {
-    "ranobe-tl": "dist/cli.js"
-  },
-  "files": [
-    "dist"
-  ],
   "engines": {
     "node": ">=22.15"
   },
+  "packageManager": "pnpm@10.28.0",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/cli.ts",
-    "test": "node --import tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
-  },
-  "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.127",
-    "@ai-sdk/google": "^3.0.130",
-    "@ai-sdk/openai": "^3.0.14",
-    "@clack/prompts": "^1.8.1",
-    "ai": "^6.0.45",
-    "chalk": "^5.3.0",
-    "dotenv": "^17.2.1",
-    "zod": "^4.3.5"
-  },
-  "devDependencies": {
-    "@types/node": "^24.1.0",
-    "tsx": "^4.20.3",
-    "typescript": "^5.9.2"
-  },
-  "keywords": [
-    "translation",
-    "web-novel",
-    "ranobe",
-    "llm",
-    "glossary",
-    "cli"
-  ]
+    "dev": "pnpm --filter @ranobe-tl/web dev",
+    "dev:worker": "pnpm --filter @ranobe-tl/web dev:worker",
+    "build": "pnpm --filter @ranobe-tl/web build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  }
 }

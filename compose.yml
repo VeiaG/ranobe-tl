@@ -1,0 +1,52 @@
+# ranobe-tl · docker compose up -d → http://<this machine>:3000
+# Works as is. Everything optional goes into a .env file next to this one (see docs/configuration.md).
+name: ranobe-tl
+
+services:
+    app:
+        image: ghcr.io/veiag/ranobe-tl:${RANOBE_TL_VERSION:-latest}
+        restart: unless-stopped
+        ports:
+            - "${PORT:-3000}:3000"
+        environment:
+            DATABASE_URL: postgres://ranobe:${POSTGRES_PASSWORD:-ranobe}@db:5432/ranobe
+            APP_SECRET: ${APP_SECRET:-}
+            APP_URL: ${APP_URL:-}
+            TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+            WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+            WORKER_SLOTS: ${WORKER_SLOTS:-8}
+            BACKUP_CRON: ${BACKUP_CRON:-17 3 * * *}
+            TZ: ${TZ:-UTC}
+        volumes:
+            # holds the generated APP_SECRET; the novels themselves live in the database
+            - data:/data
+        depends_on:
+            db:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+            interval: 30s
+            timeout: 5s
+            start_period: 30s
+            retries: 3
+        # a chapter in flight gets up to 10 minutes to finish on "docker compose stop"
+        stop_grace_period: 10m
+
+    db:
+        image: postgres:17-alpine
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: ranobe
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ranobe}
+            POSTGRES_DB: ranobe
+        volumes:
+            - db:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ranobe -d ranobe"]
+            interval: 5s
+            timeout: 3s
+            retries: 20
+
+volumes:
+    data:
+    db:
