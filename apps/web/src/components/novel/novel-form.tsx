@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Hourglass, ListChecks, Loader2 } from "lucide-react";
@@ -130,8 +131,78 @@ export function AskNewPicker({ value, onChange }: { value: AskNewPolicy | null; 
     );
 }
 
-export function NovelForm({ keys, initial, novelId }: { keys: KeyOption[]; initial?: Partial<NovelInput>; novelId?: number }) {
+type GlossaryStart = { kind: "empty" } | { kind: "novel"; id: string } | { kind: "file"; file: File | null };
+
+/** Where a new novel's glossary starts: empty, a copy of an earlier part, or a glossary file. */
+function GlossaryStartPicker({ value, onChange, novels }: { value: GlossaryStart; onChange: (v: GlossaryStart) => void; novels: { id: number; title: string; terms: number }[] }) {
+    const options: { kind: GlossaryStart["kind"]; title: string; text: string; disabled?: boolean }[] = [
+        { kind: "empty", title: "Start empty", text: "It fills up while the chapters are translated." },
+        { kind: "novel", title: "Copy from a novel", text: "An earlier part or a related story in this app.", disabled: !novels.length },
+        { kind: "file", title: "From a file", text: "glossary.json, the CLI's meta.json or glossary.db." },
+    ];
+    return (
+        <div className="grid gap-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+                {options.map((o) => (
+                    <button
+                        type="button"
+                        key={o.kind}
+                        disabled={o.disabled}
+                        onClick={() => onChange(o.kind === "empty" ? { kind: "empty" } : o.kind === "novel" ? { kind: "novel", id: novels[0] ? String(novels[0].id) : "" } : { kind: "file", file: null })}
+                        className={cn(
+                            "rounded-lg border p-3 text-left transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-45",
+                            value.kind === o.kind && "border-brand/60 bg-brand/5 ring-1 ring-brand/30"
+                        )}
+                    >
+                        <span className="block text-sm font-medium">{o.title}</span>
+                        <span className="mt-1 block text-xs text-muted-foreground">{o.text}</span>
+                    </button>
+                ))}
+            </div>
+            {value.kind === "novel" && (
+                <Select
+                    value={value.id}
+                    onValueChange={(v) => v && onChange({ kind: "novel", id: v })}
+                    items={Object.fromEntries(novels.map((n) => [String(n.id), `${n.title} · ${n.terms} terms`]))}
+                >
+                    <SelectTrigger className="w-full">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {novels.map((n) => (
+                            <SelectItem key={n.id} value={String(n.id)}>
+                                {n.title} <span className="text-muted-foreground">· {n.terms} terms</span>
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            )}
+            {value.kind === "file" && <Input type="file" accept=".json,.db,.sqlite,application/json" onChange={(e) => onChange({ kind: "file", file: e.target.files?.[0] ?? null })} />}
+            {value.kind !== "empty" && (
+                <p className="text-xs text-muted-foreground">
+                    Terms, translations, locks and notes come along; the last known gender holds from chapter 1, and proposals you rejected or sources marked
+                    “not a term” are not asked about again. It is a copy: later changes in one novel do not touch the other.
+                </p>
+            )}
+        </div>
+    );
+}
+
+export function NovelForm({
+    keys,
+    initial,
+    novelId,
+    novels = [],
+}: {
+    keys: KeyOption[];
+    initial?: Partial<NovelInput>;
+    novelId?: number;
+    /** Other novels whose glossary a new one can start from. */
+    novels?: { id: number; title: string; terms: number }[];
+}) {
+    const router = useRouter();
     const [pending, start] = useTransition();
+    const [glossaryStart, setGlossaryStart] = useState<GlossaryStart>({ kind: "empty" });
     const [keyId, setKeyId] = useState<string>(initial?.providerKeyId ? String(initial.providerKeyId) : keys[0] ? String(keys[0].id) : "");
     const [mode, setMode] = useState<DecisionMode>((initial?.decisionMode as DecisionMode) ?? "queue");
     const [askNew, setAskNew] = useState<AskNewPolicy | null>((initial?.askNew as AskNewPolicy | null | undefined) ?? null);
@@ -153,10 +224,30 @@ export function NovelForm({ keys, initial, novelId }: { keys: KeyOption[]; initi
             askNew,
             budgetUsd: String(f.get("budgetUsd") ?? "").trim() ? Number(f.get("budgetUsd")) : null,
         };
+        if (novelId) {
+            start(async () => {
+                const res = await updateNovel(novelId, input);
+                if (!res.ok) toast.error(res.error);
+                else toast.success("Saved");
+            });
+            return;
+        }
+        if (glossaryStart.kind === "file" && !glossaryStart.file) return void toast.error("Choose the glossary file");
         start(async () => {
-            const res = novelId ? await updateNovel(novelId, input) : await createNovel(input);
-            if (!res.ok) toast.error(res.error);
-            else if (novelId) toast.success("Saved");
+            const res = await createNovel({ ...input, glossaryFrom: glossaryStart.kind === "novel" && glossaryStart.id ? Number(glossaryStart.id) : null });
+            if (!res.ok) return void toast.error(res.error);
+            const id = res.data!;
+            if (glossaryStart.kind === "file" && glossaryStart.file) {
+                const form = new FormData();
+                form.set("file", glossaryStart.file);
+                form.set("sequel", "1");
+                const r = await fetch(`/api/novels/${id}/glossary`, { method: "POST", body: form });
+                const data = await r.json();
+                if (!r.ok) toast.error(`The novel was created, but the glossary was not imported: ${data.error}`);
+                else toast.success(data.message);
+            }
+            router.push(`/novels/${id}/chapters?upload=1`);
+            router.refresh();
         });
     }
 
@@ -237,6 +328,16 @@ export function NovelForm({ keys, initial, novelId }: { keys: KeyOption[]; initi
                     </Field>
                 </div>
             </section>
+
+            {!novelId && (
+                <section className="grid gap-4">
+                    <div>
+                        <h2 className="font-medium">Glossary</h2>
+                        <p className="text-sm text-muted-foreground">A sequel or a second part keeps its names consistent by starting from the earlier part&apos;s glossary.</p>
+                    </div>
+                    <GlossaryStartPicker value={glossaryStart} onChange={setGlossaryStart} novels={novels} />
+                </section>
+            )}
 
             <section className="grid gap-4">
                 <div>

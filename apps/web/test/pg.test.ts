@@ -202,3 +202,33 @@ test("versions: replacing a translation keeps the old text, only the last ten st
     assert.equal(kept.length, KEEP_VERSIONS);
     assert.deepEqual(kept.map((v) => v.content).sort(), Array.from({ length: KEEP_VERSIONS }, (_, i) => `v${i + 3}`).sort());
 });
+
+test("sequels: a glossary copied from an earlier part keeps names, the last gender and rejections", { skip: !enabled }, async () => {
+    const { forSequel, glossaryOfNovel, mergeGlossary } = await import("@/server/glossary-seed");
+    const { PgGlossaryStore } = await import("@/server/glossary-store");
+    const [sequel] = await db.insert(schema.novel).values({ title: "part two" }).returning();
+    try {
+        const own = new PgGlossaryStore(db, sequel.id);
+        await own.insertTerm({ source: "Zhao Yun", target: "Чжао Юн (своє)", type: "person", firstChapter: 1, gender: "m" });
+
+        const res = await mergeGlossary(db, sequel.id, forSequel(await glossaryOfNovel(db, novelId)));
+        assert.ok(res.added > 0);
+        assert.equal(res.existing, 1, "the sequel's own term wins");
+        assert.equal((await own.findTerm("Zhao Yun"))!.target, "Чжао Юн (своє)");
+
+        // in part one Elder Mo became "f" from chapter 30 (see above); in part two that holds from chapter 1
+        const mo = (await own.findTerm("Elder Mo"))!;
+        assert.deepEqual(mo.genders, [{ fromChapter: 1, gender: "f" }]);
+        assert.equal(mo.firstChapter, null);
+        assert.ok(await own.isIgnored("the elder"));
+        assert.ok((await own.listChanges("rejected")).length > 0);
+        assert.equal((await own.listChanges("pending")).length, 0, "open questions stay with part one");
+
+        // importing again adds nothing
+        const again = await mergeGlossary(db, sequel.id, forSequel(await glossaryOfNovel(db, novelId)));
+        assert.equal(again.added, 0);
+        assert.equal(again.rejected, 0);
+    } finally {
+        await db.delete(schema.novel).where(eq(schema.novel.id, sequel.id));
+    }
+});

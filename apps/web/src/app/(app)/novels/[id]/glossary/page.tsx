@@ -4,13 +4,13 @@ import { GlossaryTable } from "@/components/novel/glossary-table";
 import { db } from "@/db";
 import { ignoredTerm, termChange } from "@/db/schema";
 import { PgGlossaryStore } from "@/server/glossary-store";
-import { getNovel } from "@/server/queries";
+import { getNovel, listNovels } from "@/server/queries";
 
 export default async function GlossaryPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ q?: string }> }) {
     const id = Number((await params).id);
     const { q } = await searchParams;
     await getNovel(id);
-    const [terms, pending, ignored] = await Promise.all([
+    const [terms, pending, ignored, novels] = await Promise.all([
         new PgGlossaryStore(db, id).allTerms(),
         db
             .select({ termId: termChange.termId, n: sql<number>`count(*)::int` })
@@ -18,6 +18,7 @@ export default async function GlossaryPage({ params, searchParams }: { params: P
             .where(and(eq(termChange.novelId, id), eq(termChange.status, "pending")))
             .groupBy(termChange.termId),
         db.select({ source: ignoredTerm.source, sourceNorm: ignoredTerm.sourceNorm }).from(ignoredTerm).where(eq(ignoredTerm.novelId, id)).orderBy(ignoredTerm.source),
+        listNovels(),
     ]);
     const pendingBy = new Map(pending.map((p) => [p.termId, p.n]));
     return (
@@ -26,6 +27,7 @@ export default async function GlossaryPage({ params, searchParams }: { params: P
                 novelId={id}
                 initialQuery={q ?? ""}
                 ignored={ignored}
+                novels={novels.filter((n) => n.id !== id && n.terms > 0).map((n) => ({ id: n.id, title: n.title, terms: n.terms }))}
                 terms={terms.map((t) => ({
                     id: t.id,
                     source: t.source,

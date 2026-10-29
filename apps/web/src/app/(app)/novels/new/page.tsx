@@ -5,12 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Page, PageHeader } from "@/components/page-header";
 import { db } from "@/db";
 import { instanceConfig } from "@/server/instance";
-import { listKeys } from "@/server/queries";
+import { listKeys, listNovels } from "@/server/queries";
 
 export const metadata = { title: "New novel" };
 
 export default async function NewNovelPage() {
-    const [keys, { defaults }] = await Promise.all([listKeys(), instanceConfig(db)]);
+    const [keys, { defaults }, novels] = await Promise.all([listKeys(), instanceConfig(db), listNovels()]);
     return (
         <Page className="max-w-3xl">
             <PageHeader
@@ -26,6 +26,7 @@ export default async function NewNovelPage() {
             <div className="mt-8 rounded-xl border bg-card p-6 shadow-xs">
                 <NovelForm
                     keys={keys}
+                    novels={novels.filter((n) => n.terms > 0).map((n) => ({ id: n.id, title: n.title, terms: n.terms }))}
                     initial={{
                         sourceLanguage: defaults.sourceLanguage,
                         targetLanguage: defaults.targetLanguage,

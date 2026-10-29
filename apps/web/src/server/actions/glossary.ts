@@ -3,14 +3,12 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { TERM_TYPES, TermMatcher, importLegacy, normalizeTerm, type Gender } from "@ranobe-tl/core";
+import { TERM_TYPES, TermMatcher, normalizeTerm, type Gender } from "@ranobe-tl/core";
 import { db } from "@/db";
 import { chapter, ignoredTerm, novel, term, termChange, termGender } from "@/db/schema";
 import { logEvent } from "@/server/activity";
 import { decide, type DecisionInput } from "@/server/decisions";
 import { PgGlossaryStore } from "@/server/glossary-store";
-import { GLOSSARY_FORMAT } from "@/server/storage/folder";
-import { parseGlossaryJson } from "@/server/storage/import";
 import { enqueueNovel, requestSync } from "@/server/queue";
 import { requireUser } from "@/server/session";
 import { action } from "./util";
@@ -95,65 +93,6 @@ export async function setLocked(novelId: number, ids: number[], locked: boolean)
             .set({ locked })
             .where(and(eq(term.novelId, novelId), inArray(term.id, ids.length ? ids : [-1])));
         refresh(novelId);
-    });
-}
-
-/**
- * Imports a JSON glossary: either an array of {source, target, type?, note?, gender?}
- * or the old flat {"term": "переклад (чоловік)"} memory file of the CLI.
- */
-export async function importGlossary(novelId: number, json: string) {
-    return action(async () => {
-        await requireUser();
-        let parsed: unknown;
-        try {
-            parsed = JSON.parse(json);
-        } catch {
-            throw new Error("The file is not valid JSON");
-        }
-        const store = new PgGlossaryStore(db, novelId);
-        let imported = 0;
-        let existing = 0;
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && (parsed as { format?: string }).format === GLOSSARY_FORMAT) {
-            const g = parseGlossaryJson(parsed);
-            for (const t of g.terms) {
-                if (await store.findTerm(t.source)) {
-                    existing++;
-                    continue;
-                }
-                const created = await store.insertTerm({ source: t.source, target: t.target, type: t.type, note: t.note, locked: t.locked, firstChapter: t.firstChapter });
-                for (const gender of t.genders) await store.setGender(created.id, gender.fromChapter, gender.gender);
-                imported++;
-            }
-            for (const s of g.ignored) await store.ignore(s);
-        } else if (Array.isArray(parsed)) {
-            const Item = TermSchema.pick({ source: true, target: true }).extend({
-                type: z.enum(TERM_TYPES).catch("other"),
-                note: z.string().catch(""),
-                gender: z.enum(["m", "f", "unknown"]).optional().catch(undefined),
-                locked: z.boolean().catch(false),
-            });
-            for (const raw of parsed) {
-                const item = Item.safeParse(raw);
-                if (!item.success) continue;
-                if (await store.findTerm(item.data.source)) {
-                    existing++;
-                    continue;
-                }
-                await store.insertTerm({ ...item.data, firstChapter: null, gender: item.data.type === "person" ? (item.data.gender ?? "unknown") : undefined });
-                imported++;
-            }
-        } else if (parsed && typeof parsed === "object") {
-            const flat = Object.fromEntries(Object.entries(parsed).filter(([, v]) => typeof v === "string")) as Record<string, string>;
-            const res = await importLegacy(store, flat);
-            imported = res.imported;
-            existing = res.existing;
-        } else {
-            throw new Error("Expected a JSON array of terms or an object of term → translation");
-        }
-        await logEvent(db, novelId, "info", `glossary import: ${imported} terms added, ${existing} already existed`);
-        refresh(novelId);
-        return { ok: true as const, message: `${imported} terms imported${existing ? `, ${existing} already existed` : ""}` };
     });
 }
 

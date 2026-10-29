@@ -66,7 +66,7 @@ const CliConfig = z
     })
     .passthrough();
 
-interface GlossaryTerm {
+export interface GlossaryTerm {
     source: string;
     target: string;
     type: TermType;
@@ -76,7 +76,7 @@ interface GlossaryTerm {
     genders: { fromChapter: number; gender: Gender }[];
 }
 
-interface GlossaryChange {
+export interface GlossaryChange {
     source: string;
     field: string;
     oldValue: string;
@@ -87,7 +87,7 @@ interface GlossaryChange {
     evidence: string;
 }
 
-interface Glossary {
+export interface Glossary {
     terms: GlossaryTerm[];
     changes: GlossaryChange[];
     ignored: string[];
@@ -141,7 +141,7 @@ export function parseGlossaryJson(raw: unknown): Glossary {
 }
 
 /** The CLI's glossary.db (SQLite): terms with gender history, decisions, chapter statuses. */
-async function readCliDatabase(data: Uint8Array): Promise<{ glossary: Glossary; chapters: Map<number, { status: string; error: string; model: string }> }> {
+export async function readCliDatabase(data: Uint8Array): Promise<{ glossary: Glossary; chapters: Map<number, { status: string; error: string; model: string }> }> {
     const { DatabaseSync } = await import("node:sqlite");
     const dir = mkdtempSync(path.join(tmpdir(), "ranobe-import-"));
     const file = path.join(dir, "glossary.db");

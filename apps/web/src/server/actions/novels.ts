@@ -8,6 +8,8 @@ import { db } from "@/db";
 import { TERM_TYPES } from "@ranobe-tl/core";
 import { DECISION_MODES, novel } from "@/db/schema";
 import { NovelSettingsSchema } from "@/server/novel-config";
+import { logEvent } from "@/server/activity";
+import { describeMerge, forSequel, glossaryOfNovel, mergeGlossary, novelTitle } from "@/server/glossary-seed";
 import { requestSync } from "@/server/queue";
 import { requireUser } from "@/server/session";
 import { action } from "./util";
@@ -35,18 +37,28 @@ const NovelBaseSchema = z.object({
 
 export type NovelInput = z.input<typeof NovelBaseSchema>;
 
-export async function createNovel(input: NovelInput) {
-    const result = await action(async () => {
+/**
+ * Creates a novel; `glossaryFrom` starts its glossary as a copy of another novel's (an earlier part).
+ * Returns the id: the client uploads a glossary file, if one was chosen, before opening the novel.
+ */
+export async function createNovel(input: NovelInput & { glossaryFrom?: number | null }) {
+    return action(async () => {
         const user = await requireUser();
         const data = NovelBaseSchema.parse(input);
         const [row] = await db
             .insert(novel)
             .values({ ...data, createdBy: user.id })
             .returning({ id: novel.id });
+        if (input.glossaryFrom) {
+            const from = await novelTitle(db, input.glossaryFrom);
+            if (from) {
+                const result = await mergeGlossary(db, row.id, forSequel(await glossaryOfNovel(db, input.glossaryFrom)));
+                await logEvent(db, row.id, "info", describeMerge(result, from));
+            }
+        }
+        revalidatePath("/", "layout");
         return row.id;
     });
-    if (result.ok) redirect(`/novels/${result.data}/chapters?upload=1`);
-    return result;
 }
 
 export async function updateNovel(id: number, input: NovelInput & { settings?: unknown }) {

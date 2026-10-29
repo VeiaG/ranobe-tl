@@ -13,11 +13,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn, formatNumber } from "@/lib/utils";
-import { affectedChapters, deleteTerms, importGlossary, retranslate, saveTerm, setLocked, termHistory, unignore } from "@/server/actions/glossary";
+import { affectedChapters, deleteTerms, retranslate, saveTerm, setLocked, termHistory, unignore } from "@/server/actions/glossary";
 
 export interface GlossaryRow {
     id: number;
@@ -52,11 +54,14 @@ export function GlossaryTable({
     terms,
     initialQuery,
     ignored,
+    novels,
 }: {
     novelId: number;
     terms: GlossaryRow[];
     initialQuery: string;
     ignored: { source: string; sourceNorm: string }[];
+    /** Other novels with a glossary to copy terms from. */
+    novels: { id: number; title: string; terms: number }[];
 }) {
     const router = useRouter();
     const [q, setQ] = useState(initialQuery);
@@ -101,7 +106,7 @@ export function GlossaryTable({
                 <EmptyState
                     icon={BookMarked}
                     title="The glossary is empty"
-                    description="It fills up by itself while chapters are translated: the model reports names, places and techniques it meets. You can also add terms by hand or import a JSON file."
+                    description="It fills up by itself while chapters are translated: the model reports names, places and techniques it meets. For a sequel, start from the earlier part's glossary: import it from another novel or a file."
                 >
                     <Button onClick={() => setEditing("new")}>
                         <Plus />
@@ -109,11 +114,11 @@ export function GlossaryTable({
                     </Button>
                     <Button variant="outline" onClick={() => setImporting(true)}>
                         <FileUp />
-                        Import JSON
+                        Import terms
                     </Button>
                 </EmptyState>
                 <TermDialog novelId={novelId} term={editing} onClose={() => setEditing(null)} />
-                <ImportDialog novelId={novelId} open={importing} onOpenChange={setImporting} />
+                <ImportDialog novelId={novelId} open={importing} onOpenChange={setImporting} novels={novels} />
             </>
         );
     }
@@ -157,7 +162,7 @@ export function GlossaryTable({
                         <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => setImporting(true)}>
                                 <FileUp />
-                                Import JSON…
+                                Import terms…
                             </DropdownMenuItem>
                             <DropdownMenuItem render={<a href={`/api/novels/${novelId}/glossary`} />}>
                                     <Download />
@@ -271,7 +276,7 @@ export function GlossaryTable({
                 </details>
             )}
             <TermDialog novelId={novelId} term={editing} onClose={() => setEditing(null)} />
-            <ImportDialog novelId={novelId} open={importing} onOpenChange={setImporting} />
+            <ImportDialog novelId={novelId} open={importing} onOpenChange={setImporting} novels={novels} />
         </div>
     );
 }
@@ -499,46 +504,99 @@ function TermDialog({ novelId, term, onClose }: { novelId: number; term: Glossar
     );
 }
 
-function ImportDialog({ novelId, open, onOpenChange }: { novelId: number; open: boolean; onOpenChange: (v: boolean) => void }) {
+function ImportDialog({
+    novelId,
+    open,
+    onOpenChange,
+    novels,
+}: {
+    novelId: number;
+    open: boolean;
+    onOpenChange: (v: boolean) => void;
+    novels: { id: number; title: string; terms: number }[];
+}) {
     const router = useRouter();
+    const [tab, setTab] = useState("file");
+    const [file, setFile] = useState<File | null>(null);
     const [text, setText] = useState("");
-    const [pending, start] = useTransition();
+    const [fromNovel, setFromNovel] = useState(novels[0] ? String(novels[0].id) : "");
+    const [sequel, setSequel] = useState(true);
+    const [pending, setPending] = useState(false);
+    const ready = tab === "novel" ? !!fromNovel : !!file || !!text.trim();
+
+    async function submit() {
+        const form = new FormData();
+        if (tab === "novel") form.set("fromNovel", fromNovel);
+        else if (file) form.set("file", file);
+        else form.set("text", text);
+        if (sequel) form.set("sequel", "1");
+        setPending(true);
+        try {
+            const res = await fetch(`/api/novels/${novelId}/glossary`, { method: "POST", body: form });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error ?? "Import failed");
+            toast.success(data.message);
+            setFile(null);
+            setText("");
+            onOpenChange(false);
+            router.refresh();
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : String(error));
+        } finally {
+            setPending(false);
+        }
+    }
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-xl">
                 <DialogHeader>
-                    <DialogTitle>Import a glossary</DialogTitle>
-                    <DialogDescription>
-                        A JSON array of <code className="text-xs">{`{"source", "target", "type", "note", "gender"}`}</code>, or the old flat{" "}
-                        <code className="text-xs">{`{"term": "переклад (чоловік)"}`}</code> file. Existing terms are kept.
-                    </DialogDescription>
+                    <DialogTitle>Add terms to the glossary</DialogTitle>
+                    <DialogDescription>Terms this novel already has stay as they are; only new ones are added.</DialogDescription>
                 </DialogHeader>
-                <Input
-                    type="file"
-                    accept=".json,application/json"
-                    onChange={async (e) => {
-                        const f = e.target.files?.[0];
-                        if (f) setText(await f.text());
-                    }}
-                />
-                <Textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="…or paste JSON here" className="h-48 font-mono text-xs [field-sizing:fixed]" />
+                <Tabs value={tab} onValueChange={(v) => setTab(String(v))}>
+                    <TabsList className="w-full">
+                        <TabsTrigger value="file">File or JSON</TabsTrigger>
+                        <TabsTrigger value="novel" disabled={!novels.length}>
+                            Another novel
+                        </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="file" className="mt-3 grid gap-3">
+                        <Input type="file" accept=".json,.db,.sqlite,application/json" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+                        <p className="text-xs text-muted-foreground">
+                            glossary.json from here, a JSON array of <code>{`{"source", "target", "type"}`}</code>, the CLI&apos;s flat meta.json or its glossary.db.
+                        </p>
+                        {!file && <Textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="…or paste JSON here" className="h-36 font-mono text-xs [field-sizing:fixed]" />}
+                    </TabsContent>
+                    <TabsContent value="novel" className="mt-3">
+                        <Select value={fromNovel} onValueChange={(v) => v && setFromNovel(v)} items={Object.fromEntries(novels.map((n) => [String(n.id), `${n.title} · ${n.terms} terms`]))}>
+                            <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Choose a novel" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {novels.map((n) => (
+                                    <SelectItem key={n.id} value={String(n.id)}>
+                                        {n.title} <span className="text-muted-foreground">· {n.terms} terms</span>
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </TabsContent>
+                </Tabs>
+                <label className="flex items-start gap-2.5 rounded-lg border p-3 text-sm">
+                    <Checkbox checked={sequel} onCheckedChange={(v) => setSequel(v === true)} className="mt-0.5" />
+                    <span>
+                        <span className="block font-medium">It is an earlier part</span>
+                        <span className="block text-xs text-muted-foreground">
+                            The last known gender holds from chapter 1 and first-seen chapters are dropped. Off: genders and chapters stay as in the source.
+                        </span>
+                    </span>
+                </label>
                 <DialogFooter>
                     <Button variant="ghost" onClick={() => onOpenChange(false)}>
                         Cancel
                     </Button>
-                    <Button
-                        disabled={!text.trim() || pending}
-                        onClick={() =>
-                            start(async () => {
-                                const res = await importGlossary(novelId, text);
-                                if (!res.ok) return void toast.error(res.error);
-                                toast.success(res.message ?? "Imported");
-                                setText("");
-                                onOpenChange(false);
-                                router.refresh();
-                            })
-                        }
-                    >
+                    <Button disabled={!ready || pending} onClick={submit}>
                         {pending ? <Loader2 className="animate-spin" /> : <FileUp />}
                         Import
                     </Button>
