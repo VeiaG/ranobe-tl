@@ -3,7 +3,8 @@ export function escapeHtml(s: string): string {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-export function appUrl(path = ""): string {
-    const base = (process.env.APP_URL ?? process.env.BETTER_AUTH_URL ?? "http://localhost:3000").replace(/\/$/, "");
-    return `${base}${path}`;
+/** A link into the app, or nothing when APP_URL is not set (the worker cannot know the address). */
+export function appLink(path: string, label: string): string {
+    const base = (process.env.APP_URL || process.env.BETTER_AUTH_URL || "").replace(/\/$/, "");
+    return base ? `<a href="${base}${path}">${label}</a>` : "";
 }

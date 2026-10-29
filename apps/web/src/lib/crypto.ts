@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 
 /** Secret for API keys at rest; the same APP_SECRET signs sessions. */
 function key(): Buffer {
-    const secret = process.env.APP_SECRET ?? process.env.BETTER_AUTH_SECRET;
+    const secret = process.env.APP_SECRET || process.env.BETTER_AUTH_SECRET;
     if (!secret || secret.length < 16) throw new Error("APP_SECRET must be set (at least 16 characters)");
     return createHash("sha256").update(`ranobe-tl:keys:${secret}`).digest();
 }

@@ -27,37 +27,22 @@ Self-hosted web app that translates web novels chapter by chapter with an LLM (O
 
 ## Run it
 
-Needs Docker. Works on a Raspberry Pi 4/5 (arm64): the model runs at the provider, the Pi only coordinates.
+Needs Docker with Compose. Runs on a Raspberry Pi 4/5 (arm64) too: the model runs at the provider, the Pi only coordinates.
 
 ```sh
 mkdir ranobe-tl && cd ranobe-tl
-curl -O https://raw.githubusercontent.com/VeiaG/ranobe-tl/main/compose.yml
-echo "APP_SECRET=$(openssl rand -base64 32)" > .env
+curl -fsSLO https://github.com/VeiaG/ranobe-tl/releases/latest/download/compose.yml
 docker compose up -d
 ```
 
-Open http://localhost:3000, create the admin account, add an API key in **Settings → API keys**, create a novel and upload its chapters.
+Open `http://<this machine>:3000`, create the admin account, add an API key in **Settings → API keys**, create a novel and upload its chapters.
 
-To build the image yourself instead of pulling it: clone the repo and run `docker compose up -d --build`.
+No `.env` is needed: the secret that encrypts the API keys is generated on the first start. Two containers start, the app and Postgres; the image comes ready from `ghcr.io/veiag/ranobe-tl`, nothing is built.
 
-### Configuration (`.env`)
+- [Configuration](docs/configuration.md): environment variables, where data is stored, updating, pinning a version
+- [Running it on a domain](docs/deploy.md): Coolify, Caddy, Cloudflare Tunnel, nginx
 
-| variable | | |
-|---|---|---|
-| `APP_SECRET` | required | encrypts API keys and signs sessions; keep it, keys can't be read without it |
-| `APP_URL` | `http://localhost:3000` | public address: links in Telegram, auth cookies |
-| `TELEGRAM_BOT_TOKEN` | | bot from @BotFather; can also be set in **Settings → Telegram** (that one wins), then link your chat there |
-| `TELEGRAM_BOT_USERNAME` | | only if the web container can't reach api.telegram.org to look it up |
-| `WORKER_CONCURRENCY` | 2 | novels translated at the same time, until changed in Settings → Instance |
-| `WORKER_SLOTS` | 8 | the most a single worker can run at once; the real limit is the instance setting |
-| `TRUSTED_ORIGINS` | | extra origins allowed to sign in, comma-separated (e.g. a second domain) |
-| `BACKUP_CRON` | `17 3 * * *` | when the nightly backup check runs (see Backups) |
-| `TZ` | UTC | time zone of `BACKUP_CRON` |
-| `POSTGRES_PASSWORD`, `PORT` | | |
-
-The image runs as `web`, `worker`, or `all` (both in one container, for the smallest setups). `compose.yml` runs `web` and `worker` separately; `docker compose stop` lets the chapter in flight finish (up to 10 minutes).
-
-Migrations run on start.
+Updating: `docker compose pull && docker compose up -d`.
 
 ### Backups
 
@@ -115,12 +100,15 @@ apps/web        Next.js app, Drizzle schema, pg-boss worker, Telegram bot
 
 ```sh
 pnpm install
-cp .env.example apps/web/.env.local   # set DATABASE_URL and APP_SECRET
+echo "DATABASE_URL=postgres://ranobe:ranobe@localhost:5432/ranobe
+APP_SECRET=$(openssl rand -base64 32)" > apps/web/.env.local
 pnpm --filter @ranobe-tl/web db:migrate
 pnpm dev              # http://localhost:3000
 pnpm dev:worker       # in a second terminal
 pnpm test             # web tests that need Postgres run when DATABASE_URL is set
 ```
+
+Releases: push a tag `v1.2.3`. CI builds the image for amd64 and arm64 (`:1.2.3`, `:1.2`, `:latest`) and creates a GitHub release with a `compose.yml` pinned to that version. Every push to `main` also publishes `:edge`.
 
 Schema changes: edit `apps/web/src/db/schema.ts`, then `pnpm --filter @ranobe-tl/web db:generate`.
 

@@ -2,7 +2,7 @@ import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { Bot, InlineKeyboard, type Context } from "grammy";
 import type { DB } from "@/db";
 import { chapter, novel, telegramLink, termChange } from "@/db/schema";
-import { appUrl, escapeHtml } from "@/lib/html";
+import { appLink, escapeHtml } from "@/lib/html";
 import { decide, pendingGroups, type PendingGroup } from "@/server/decisions";
 import type { Notifier } from "./notify";
 
@@ -56,7 +56,7 @@ export function createTelegram(db: DB, token: string): { bot: Bot; notifier: Not
             if (groups.length > shown.length) {
                 await bot.api.sendMessage(
                     chatId,
-                    `…and ${groups.length - shown.length} more: <a href="${appUrl("/decisions")}">open the app</a>`,
+                    `…and ${groups.length - shown.length} more in the app. ${appLink("/decisions", "Open")}`,
                     { parse_mode: "HTML" }
                 );
             }
@@ -85,7 +85,7 @@ export function createTelegram(db: DB, token: string): { bot: Bot; notifier: Not
         async runHalted(n, reason) {
             await broadcast(
                 "notifyFailures",
-                `⛔ <b>${escapeHtml(n.title)}</b> stopped\n${escapeHtml(reason.slice(0, 600))}\n<a href="${appUrl(`/novels/${n.id}`)}">Open</a>`
+                `⛔ <b>${escapeHtml(n.title)}</b> stopped\n${escapeHtml(reason.slice(0, 600))}\n${appLink(`/novels/${n.id}`, "Open")}`
             );
         },
         async finished(n) {
@@ -98,7 +98,7 @@ export function createTelegram(db: DB, token: string): { bot: Bot; notifier: Not
                 .where(eq(chapter.novelId, n.id));
             await broadcast(
                 "notifyFinished",
-                `✅ <b>${escapeHtml(n.title)}</b>: run finished, ${stats.done}/${stats.total} chapters translated.\n<a href="${appUrl(`/novels/${n.id}`)}">Open</a>`
+                `✅ <b>${escapeHtml(n.title)}</b>: run finished, ${stats.done}/${stats.total} chapters translated.\n${appLink(`/novels/${n.id}`, "Open")}`
             );
         },
     };

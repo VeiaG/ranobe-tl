@@ -22,14 +22,29 @@ async function validInvite(token: string | null | undefined) {
     return row;
 }
 
+const APP_URL = process.env.APP_URL || process.env.BETTER_AUTH_URL || undefined;
+const EXTRA_ORIGINS = (process.env.TRUSTED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+
+/**
+ * Without APP_URL the app answers on whatever address it was opened with (a Pi's LAN IP, a domain
+ * behind a proxy): a request is trusted when its Origin is the host it was sent to, which is the
+ * same-origin check, just without knowing the host in advance.
+ */
+function ownOrigins(request?: Request): string[] {
+    const host = request?.headers.get("x-forwarded-host") ?? request?.headers.get("host");
+    return host ? [`http://${host}`, `https://${host}`] : [];
+}
+
 /**
  * Accounts: the first one becomes the admin, everyone after that needs an invite from the admin.
  * The invite token travels in a header so that the sign-up body stays Better Auth's own.
  */
 export const auth = betterAuth({
-    secret: process.env.APP_SECRET ?? process.env.BETTER_AUTH_SECRET,
-    baseURL: process.env.APP_URL ?? process.env.BETTER_AUTH_URL,
-    trustedOrigins: (process.env.TRUSTED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    secret: process.env.APP_SECRET || process.env.BETTER_AUTH_SECRET,
+    baseURL: APP_URL,
+    trustedOrigins: APP_URL ? EXTRA_ORIGINS : async (request) => [...EXTRA_ORIGINS, ...ownOrigins(request)],
+    // with a known https address cookies are Secure; on a bare http://<ip>:3000 they cannot be
+    advanced: APP_URL ? {} : { useSecureCookies: false },
     database: drizzleAdapter(db, {
         provider: "pg",
         schema: { user: schema.user, session: schema.session, account: schema.account, verification: schema.verification },
