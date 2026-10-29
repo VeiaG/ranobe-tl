@@ -1,4 +1,4 @@
-import type { AskNewPolicy } from "@ranobe-tl/core";
+import type { AskNewPolicy, ChangeField, ChapterDraft } from "@ranobe-tl/core";
 import {
     bigserial,
     boolean,
@@ -100,6 +100,25 @@ export const telegramLink = pgTable("telegram_link", {
     createdAt: createdAt(),
 });
 
+/**
+ * Bot messages with decision buttons, so a decision made elsewhere (the app, another chat) closes them.
+ * No foreign key: a term removed as "not a term" must still find its messages.
+ */
+export const telegramMessage = pgTable(
+    "telegram_message",
+    {
+        id: serial("id").primaryKey(),
+        chatId: text("chat_id").notNull(),
+        messageId: integer("message_id").notNull(),
+        termId: integer("term_id").notNull(),
+        field: text("field").$type<ChangeField>().notNull(),
+        /** The message as sent (HTML), to rewrite it with the outcome. */
+        text: text("text").notNull(),
+        createdAt: createdAt(),
+    },
+    (t) => [index("telegram_message_term").on(t.termId, t.field)]
+);
+
 // ---------- instance ----------
 
 /** Settings of the whole instance (storage, limits, defaults), one JSON value per key. */
@@ -178,6 +197,13 @@ export const novel = pgTable("novel", {
 
 export const CHAPTER_STATUSES = ["new", "queued", "translating", "done", "failed", "skipped"] as const;
 export type ChapterStatus = (typeof CHAPTER_STATUSES)[number];
+/** A term of the paused chunk as the model saw it; `source` finds the chunks that use it. */
+export interface DraftTerm {
+    id: number;
+    source: string;
+    target: string;
+    gender: string | null;
+}
 
 export const chapter = pgTable(
     "chapter",
@@ -204,6 +230,11 @@ export const chapter = pgTable(
         storageSourceHash: text("storage_source_hash"),
         /** Seconds spent on the last translation. */
         duration: integer("duration"),
+        /**
+         * Chunks translated before the run paused for glossary decisions, with the terms of the paused chunk
+         * as they were then: a resumed run keeps them when the decisions changed nothing.
+         */
+        draft: jsonb("draft").$type<ChapterDraft & { terms: DraftTerm[] }>(),
         translatedAt: timestamp("translated_at", { withTimezone: true }),
         createdAt: createdAt(),
         updatedAt: updatedAt(),

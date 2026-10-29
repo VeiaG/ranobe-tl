@@ -17,8 +17,19 @@ export type ChapterResult =
     | { status: "done"; title: string; content: string; attempts: number; ratio: number; usage: Usage }
     | { status: "skipped"; reason: string }
     | { status: "failed"; attempts: number; reason: string; usage: Usage }
-    /** A chunk proposed glossary changes and the handler asked to wait for a decision; nothing is saved. */
-    | { status: "paused"; attempts: number; usage: Usage };
+    /**
+     * A chunk proposed glossary changes and the handler asked to wait for a decision. The chunks translated
+     * so far (the paused one last) come back as a draft to continue from; `pending` are the paused chunk's changes.
+     */
+    | { status: "paused"; attempts: number; usage: Usage; draft: ChapterDraft; pending: PendingOutcome[] };
+
+/** Chunks of a chapter translated before a pause. Passed back to translateChapter, they are not translated again. */
+export interface ChapterDraft {
+    /** Source of each translated chunk: a chunk is reused only while its source is the same. */
+    sources: string[];
+    parts: string[];
+    title?: string;
+}
 
 /**
  * What to do after a chunk proposed changes to existing terms:
@@ -35,6 +46,8 @@ export type TranslatorEvent =
     | { type: "latin-accepted"; chapter: number; chunk: number; attempt: number }
     | { type: "term"; chapter: number; outcome: ProposalOutcome }
     | { type: "retranslate"; chapter: number; chunk: number }
+    /** Chunks taken from the draft of an earlier pause instead of being translated again. */
+    | { type: "draft-reused"; chapter: number; chunks: number; totalChunks: number }
     | { type: "second-pass-failed"; chapter: number; chunk: number }
     /** Every request: raw prompt and output (for debugging) and the tokens it used (for cost). */
     | { type: "exchange"; chapter: number; chunk: number; attempt: number; system: string; prompt: string; output: string; usage: Usage; failed: boolean };
@@ -46,7 +59,12 @@ export interface TranslatorOptions {
 }
 
 class PausedForDecisions extends Error {
-    constructor(readonly attempts: number) {
+    constructor(
+        readonly attempts: number,
+        readonly translation: string,
+        readonly title: string | undefined,
+        readonly pending: PendingOutcome[]
+    ) {
         super("waiting for glossary decisions");
     }
 }
@@ -65,7 +83,7 @@ export class Translator {
         this.system = systemPrompt(config);
     }
 
-    async translateChapter(index: number, rawSource: string): Promise<ChapterResult> {
+    async translateChapter(index: number, rawSource: string, draft?: ChapterDraft): Promise<ChapterResult> {
         const source = cleanSource(rawSource, this.config);
         const check = checkSource(source, this.config);
         if (!check.ok) return { status: "skipped", reason: check.reason! };
@@ -83,7 +101,17 @@ export class Translator {
         let attempts = 0;
         let translatedLength = 0;
 
-        for (let c = 0; c < chunks.length; c++) {
+        // chunks of a paused run that are still valid: same source, in order from the start
+        let reuse = 0;
+        while (draft && reuse < chunks.length && reuse < draft.parts.length && draft.sources[reuse] === chunks[reuse]) reuse++;
+        if (reuse) {
+            parts.push(...draft!.parts.slice(0, reuse));
+            title = draft!.title;
+            translatedLength = parts.reduce((sum, p) => sum + p.length, 0);
+            await this.emit({ type: "draft-reused", chapter: index, chunks: reuse, totalChunks: chunks.length });
+        }
+
+        for (let c = reuse; c < chunks.length; c++) {
             await this.emit({ type: "chunk", chapter: index, chunk: c, totalChunks: chunks.length });
             const previousContext = c > 0 ? parts[c - 1].slice(-this.config.contextChars) : undefined;
             let result: Awaited<ReturnType<Translator["translateChunk"]>>;
@@ -91,7 +119,9 @@ export class Translator {
                 result = await this.translateChunk(index, chunks[c], c, chunks.length, previousContext);
             } catch (error) {
                 if (error instanceof PausedForDecisions) {
-                    return { status: "paused", attempts: attempts + error.attempts, usage: usage() };
+                    const done = [...parts, error.translation];
+                    const draft: ChapterDraft = { sources: chunks.slice(0, done.length), parts: done, title: c === 0 ? error.title : title };
+                    return { status: "paused", attempts: attempts + error.attempts, usage: usage(), draft, pending: error.pending };
                 }
                 throw error;
             }
@@ -181,7 +211,7 @@ export class Translator {
             // The model writes the current glossary translation into the text and only proposes the new one,
             // so an accepted change needs one more pass. All changes of the chunk are decided first.
             const decision = await this.opts.onPending(pending, chapter);
-            if (decision === "pause") throw new PausedForDecisions(attempt);
+            if (decision === "pause") throw new PausedForDecisions(attempt, parsed.translation, parsed.title, pending);
             if (decision === "continue") return result;
 
             for (const o of pending) await this.glossary.reload(o.term.id).catch(() => undefined);
@@ -235,6 +265,11 @@ export function describeEvent(e: TranslatorEvent): { level: EventLevel; message:
             return { level: "warning", message: `${where(e.chunk, e.attempt)}: ${e.reason}` };
         case "latin-accepted":
             return { level: "info", message: `${where(e.chunk, e.attempt)}: accepted, the Latin share is stable across attempts` };
+        case "draft-reused":
+            return {
+                level: "info",
+                message: `${e.chunks} of ${e.totalChunks} ${e.totalChunks === 1 ? "chunk" : "chunks"} kept from before the pause, not translated again`,
+            };
         case "retranslate":
             return { level: "info", message: `${where(e.chunk)}: translating again with the updated glossary` };
         case "second-pass-failed":

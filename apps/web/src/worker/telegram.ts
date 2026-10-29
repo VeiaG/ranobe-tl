@@ -1,9 +1,10 @@
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, lte, sql } from "drizzle-orm";
 import { Bot, InlineKeyboard, type Context } from "grammy";
 import type { DB } from "@/db";
-import { chapter, novel, telegramLink, termChange } from "@/db/schema";
+import { chapter, novel, telegramLink, telegramMessage, termChange } from "@/db/schema";
 import { appLink, escapeHtml } from "@/lib/html";
 import { decide, pendingGroups, type PendingGroup } from "@/server/decisions";
+import type { DecidedJob } from "@/server/queue";
 import type { Notifier } from "./notify";
 
 type Novel = typeof novel.$inferSelect;
@@ -16,7 +17,14 @@ const ACTIONS = { keep: "k", use: "u", custom: "c", remove: "r" } as const;
 
 const GENDER_LABEL: Record<string, string> = { m: "male", f: "female", unknown: "unknown" };
 
-export function createTelegram(db: DB, token: string): { bot: Bot; notifier: Notifier } {
+export interface Telegram {
+    bot: Bot;
+    notifier: Notifier;
+    /** Closes the messages still showing buttons for a decision made elsewhere. */
+    decided(job: DecidedJob): Promise<void>;
+}
+
+export function createTelegram(db: DB, token: string): Telegram {
     const bot = new Bot(token, {
         client: {
             // Node's own fetch: grammY's default (node-fetch) fails every request once bundled into worker.mjs
@@ -58,7 +66,9 @@ export function createTelegram(db: DB, token: string): { bot: Bot; notifier: Not
         for (const chatId of chatIds) {
             await bot.api.sendMessage(chatId, header, { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
             for (const g of shown) {
-                await bot.api.sendMessage(chatId, describeGroup(g), { parse_mode: "HTML", reply_markup: groupKeyboard(g) });
+                const text = describeGroup(g);
+                const sent = await bot.api.sendMessage(chatId, text, { parse_mode: "HTML", reply_markup: groupKeyboard(g) });
+                await db.insert(telegramMessage).values({ chatId, messageId: sent.message_id, termId: g.term.id, field: g.field, text });
             }
             if (groups.length > shown.length) {
                 await bot.api.sendMessage(
@@ -169,6 +179,8 @@ export function createTelegram(db: DB, token: string): { bot: Bot; notifier: Not
         if (!link) return void (await ctx.answerCallbackQuery({ text: "This chat is not linked." }));
         const [action, rawId] = ctx.callbackQuery.data.split(":");
         const [change] = await db.select().from(termChange).where(eq(termChange.id, Number(rawId)));
+        // this message is updated right here; the others about the same term are closed after the decision
+        if (action !== ACTIONS.custom) await forgetMessage(ctx);
         if (!change || change.status !== "pending") {
             await ctx.answerCallbackQuery({ text: "Already decided" });
             await ctx.editMessageReplyMarkup().catch(() => {});
@@ -220,17 +232,46 @@ export function createTelegram(db: DB, token: string): { bot: Bot; notifier: Not
     });
 
     bot.catch((error) => console.error("[telegram]", error.error));
-    return { bot, notifier };
+
+    async function forgetMessage(ctx: Context) {
+        const message = ctx.callbackQuery?.message;
+        if (!message) return;
+        await db
+            .delete(telegramMessage)
+            .where(and(eq(telegramMessage.chatId, String(message.chat.id)), eq(telegramMessage.messageId, message.message_id)));
+    }
+
+    async function decided(job: DecidedJob) {
+        const open = await db
+            .delete(telegramMessage)
+            .where(
+                and(
+                    eq(telegramMessage.termId, job.termId),
+                    eq(telegramMessage.field, job.field),
+                    lte(telegramMessage.createdAt, new Date(job.decidedAt))
+                )
+            )
+            .returning();
+        for (const m of open) {
+            await bot.api
+                .editMessageText(m.chatId, m.messageId, decidedText(m.text, job.what, job.resumed), { parse_mode: "HTML" })
+                // deleted by the user, or the same text already: nothing to close
+                .catch(() => {});
+        }
+    }
+
+    return { bot, notifier, decided };
 }
 
 async function markDecided(ctx: Context, what: string, resumed: boolean) {
     const original = ctx.callbackQuery?.message;
     const text = original && "text" in original ? original.text : "";
-    await ctx
-        .editMessageText(`${escapeHtml(text ?? "")}\n\n✓ <b>${escapeHtml(what)}</b>${resumed ? "\n▶️ Translation resumed" : ""}`, {
-            parse_mode: "HTML",
-        })
-        .catch(() => {});
+    await ctx.editMessageText(decidedText(escapeHtml(text ?? ""), what, resumed), { parse_mode: "HTML" }).catch(() => {});
+}
+
+/** A decision message without its buttons, with the outcome below; `html` is the message as sent. */
+function decidedText(html: string, what: string, resumed: boolean): string {
+    return `${html}\n\n✓ <b>${escapeHtml(what)}</b>${resumed ? "\n▶️ Translation resumed" : ""}`;
 }
 
 function describeGroup(g: PendingGroup): string {

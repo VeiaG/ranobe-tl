@@ -75,6 +75,8 @@ The folders are what matters; for a full copy of everything (accounts, activity 
 - a value you rejected once is not proposed again; locked terms never change
 - with "review new terms" on, a new term is still added at once (the next chunks use it) and also waits for review; a source removed as "not a term" is ignored from then on (restore it at the bottom of the glossary)
 
+In the "pause" decision mode a chapter stops at the chunk that proposed changes. Once they are decided it continues from there: the chunks already translated are kept, and the paused chunk is translated again only if a decision changed one of its terms (another translation or gender, or "not a term"). A decision made in the app or in one Telegram chat closes the buttons of the same question in every chat.
+
 When you change a term, the app offers to translate again the chapters whose source mentions it.
 
 **Export**: a zip of `.txt`, a zip of `.json` (the CLI's `{ content, title }` format) or one `.txt` with everything; the glossary exports and imports as JSON (the CLI's old flat `{"term": "переклад (чоловік)"}` files import too).

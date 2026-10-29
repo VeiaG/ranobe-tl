@@ -232,3 +232,91 @@ test("sequels: a glossary copied from an earlier part keeps names, the last gend
         await db.delete(schema.novel).where(eq(schema.novel.id, sequel.id));
     }
 });
+
+test("pause: accepting every new term keeps the translated chunks, Telegram buttons close after a decision in the app", { skip: !enabled }, async () => {
+    const http = await import("node:http");
+    const { encrypt } = await import("@/lib/crypto");
+    const { decide } = await import("@/server/decisions");
+    const { DECIDED_QUEUE, getBoss } = await import("@/server/queue");
+    const { translateNext } = await import("@/worker/run");
+    const { createTelegram } = await import("@/worker/telegram");
+
+    // a fake Anthropic API (the model) and a fake Telegram Bot API on one port
+    const prose = (n: number) => `Лінь Фен увійшов до зали ${n} й довго роззирався навкруги, нічого не кажучи. `.repeat(18);
+    let modelCalls = 0;
+    let messageId = 0;
+    const edits: { chat_id: string; message_id: number; text: string; reply_markup?: unknown }[] = [];
+    const server = http.createServer(async (req, res) => {
+        let body = "";
+        for await (const part of req) body += part;
+        const json = (data: unknown) => res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(data));
+        if (req.url === "/messages") {
+            modelCalls++;
+            // the first chunk finds a new name
+            const terms = modelCalls === 1 ? `[{"source":"Lin Feng","target":"Лінь Фен","type":"person","gender":"m"}]` : "[]";
+            const text = `<title>Розділ 1</title>\n<translation>\n${prose(modelCalls)}\n</translation>\n<terms>${terms}</terms>`;
+            return json({ id: "m", type: "message", role: "assistant", model: "x", content: [{ type: "text", text }], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } });
+        }
+        const params = JSON.parse(body || "{}");
+        if (req.url!.endsWith("/sendMessage")) return json({ ok: true, result: { message_id: ++messageId, date: 0, chat: { id: Number(params.chat_id), type: "private" }, text: params.text } });
+        if (req.url!.endsWith("/editMessageText")) edits.push(params);
+        return json({ ok: true, result: true });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const root = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    process.env.APP_SECRET ??= "test-secret-test-secret";
+    process.env.TELEGRAM_API_ROOT = root;
+
+    const userId = `tg-${Date.now()}`;
+    await db.insert(schema.user).values({ id: userId, name: "t", email: `${userId}@example.com` });
+    await db.insert(schema.telegramLink).values({ userId, chatId: "4242" });
+    const [key] = await db.insert(schema.providerKey).values({ name: "pause-test", provider: "anthropic", baseURL: root, encryptedKey: encrypt("sk-test"), hint: "test" }).returning();
+    const [n] = await db
+        .insert(schema.novel)
+        .values({ title: "pause test", status: "running", decisionMode: "pause", askNew: {}, providerKeyId: key.id, settings: { chunkSize: 1500 } })
+        .returning();
+    const paragraph = "Lin Feng walked into the great hall and looked around for a long while. ".repeat(20);
+    await db.insert(schema.chapter).values({ novelId: n.id, index: 1, source: `Chapter 1\n\n${paragraph}\n\n${paragraph}`, status: "queued" });
+    const telegram = createTelegram(db, "123:test");
+    try {
+        assert.equal(await translateNext(db, n.id, telegram.notifier), "stop");
+        let [ch] = await db.select().from(schema.chapter).where(eq(schema.chapter.novelId, n.id));
+        assert.equal(ch.status, "queued");
+        assert.equal(ch.draft?.parts.length, 1, "the paused first chunk is kept");
+        assert.deepEqual(ch.draft?.terms.map((t) => t.source), ["Lin Feng"]);
+        const [sent] = await db.select().from(schema.telegramMessage).where(eq(schema.telegramMessage.chatId, "4242"));
+        assert.ok(sent, "the decision message is remembered");
+
+        // accepted in the app, as proposed
+        const lin = (await db.select().from(schema.term).where(eq(schema.term.novelId, n.id)))[0];
+        const res = await decide(db, { novelId: n.id, termId: lin.id, field: "new" });
+        assert.equal(res.resumed, true);
+
+        // the worker gets the decision and closes the Telegram message
+        const boss = await getBoss();
+        const jobs = await boss.fetch<import("@/server/queue").DecidedJob>(DECIDED_QUEUE, { batchSize: 50 });
+        const job = jobs.find((j) => j.data.termId === lin.id);
+        assert.ok(job, "a decision job was queued");
+        await telegram.decided(job.data);
+        assert.equal(edits.length, 1);
+        assert.equal(edits[0].message_id, sent.messageId);
+        assert.equal(edits[0].reply_markup, undefined, "no buttons any more");
+        assert.match(edits[0].text, /confirmed → Лінь Фен/);
+        assert.equal((await db.select().from(schema.telegramMessage).where(eq(schema.telegramMessage.termId, lin.id))).length, 0);
+
+        // the run goes on from the second chunk
+        assert.equal(await translateNext(db, n.id, telegram.notifier), "next");
+        [ch] = await db.select().from(schema.chapter).where(eq(schema.chapter.novelId, n.id));
+        assert.equal(ch.status, "done");
+        assert.equal(modelCalls, 2, "the first chunk is not translated again");
+        assert.match(ch.content!, /зали 1.*зали 2/s);
+        assert.equal(ch.draft, null);
+    } finally {
+        server.close();
+        delete process.env.TELEGRAM_API_ROOT;
+        await db.delete(schema.novel).where(eq(schema.novel.id, n.id));
+        await db.delete(schema.providerKey).where(eq(schema.providerKey.id, key.id));
+        await db.delete(schema.user).where(eq(schema.user.id, userId));
+        await db.delete(schema.telegramMessage).where(eq(schema.telegramMessage.chatId, "4242"));
+    }
+});

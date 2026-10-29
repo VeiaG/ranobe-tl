@@ -124,7 +124,7 @@ export async function retranslate(novelId: number, indexes: number[]) {
         if (!n.providerKeyId) throw new Error("Choose an API key in the novel settings first");
         await db
             .update(chapter)
-            .set({ status: "queued" })
+            .set({ status: "queued", draft: null })
             .where(and(eq(chapter.novelId, novelId), inArray(chapter.index, indexes)));
         if (n.status !== "running") {
             await db.update(novel).set({ status: "running", statusMessage: "Starting…", stopRequested: false, failStreak: 0 }).where(eq(novel.id, novelId));
