@@ -17,8 +17,14 @@ const ACTIONS = { keep: "k", use: "u", custom: "c", remove: "r" } as const;
 const GENDER_LABEL: Record<string, string> = { m: "male", f: "female", unknown: "unknown" };
 
 export function createTelegram(db: DB, token: string): { bot: Bot; notifier: Notifier } {
-    // TELEGRAM_API_ROOT: a self-hosted Bot API server (or a mock in tests)
-    const bot = new Bot(token, process.env.TELEGRAM_API_ROOT ? { client: { apiRoot: process.env.TELEGRAM_API_ROOT } } : undefined);
+    const bot = new Bot(token, {
+        client: {
+            // Node's own fetch: grammY's default (node-fetch) fails every request once bundled into worker.mjs
+            fetch: globalThis.fetch,
+            // a self-hosted Bot API server (or a mock in tests)
+            ...(process.env.TELEGRAM_API_ROOT ? { apiRoot: process.env.TELEGRAM_API_ROOT } : {}),
+        },
+    });
     /** chat id → change id of the group waiting for a typed translation */
     const awaitingCustom = new Map<string, number>();
 
