@@ -416,8 +416,11 @@ export const termAdvice = pgTable(
 
 export const BATCH_KINDS = ["extract", "translate"] as const;
 export type BatchKind = (typeof BATCH_KINDS)[number];
-/** "canceling": cancel was requested; the batch is still polled so the results that came back are kept. */
-export const BATCH_STATUSES = ["in_progress", "canceling", "ended", "canceled", "failed"] as const;
+/**
+ * "canceling": cancel was requested; the batch is still polled so the results that came back are kept.
+ * "applying": the batch ended and one poll has claimed its results, so they are applied only once.
+ */
+export const BATCH_STATUSES = ["in_progress", "canceling", "applying", "ended", "canceled", "failed"] as const;
 export type BatchStatus = (typeof BATCH_STATUSES)[number];
 
 /** One Message Batch at the provider. Polled by the worker until it ends, then its results are applied. */

@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { PROVIDER_DEFAULTS, type Provider } from "@ranobe-tl/core";
 import type { DB } from "@/db";
 import { chapter, novel, providerKey, usageRecord } from "@/db/schema";
@@ -47,8 +47,10 @@ export async function estimateRun(db: DB, novelId: number, scope: RunScope): Pro
         .select({ chapters: sql<number>`count(*)::int`, chars: sql<number>`coalesce(sum(length(${chapter.source})), 0)::float8` })
         .from(chapter)
         .where(and(eq(chapter.novelId, novelId), eq(chapter.status, "done")));
-    if (done.chapters >= MIN_HISTORY_CHAPTERS && done.chars > 0 && spentUsd > 0) {
-        return { chapters: sel.chapters, chars: sel.chars, usd: (spentUsd / done.chars) * sel.chars, model, basis: "history", spentUsd, budgetUsd: n.budgetUsd };
+    // only the translation requests (they carry a chunk): term extraction and helper requests are not paid per chapter again
+    const { usd: translatedUsd } = await spent(db, and(eq(usageRecord.novelId, novelId), isNotNull(usageRecord.chunk)));
+    if (done.chapters >= MIN_HISTORY_CHAPTERS && done.chars > 0 && translatedUsd > 0) {
+        return { chapters: sel.chapters, chars: sel.chars, usd: (translatedUsd / done.chars) * sel.chars, model, basis: "history", spentUsd, budgetUsd: n.budgetUsd };
     }
 
     const requests = Math.max(sel.chapters, 1);

@@ -51,9 +51,7 @@ export async function pollBatch(db: DB, batchJobId: number, notifier: BatchNotif
     try {
         setup = await batchSetup(db, n);
     } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        await db.update(batchJob).set({ status: "failed", error: reason, endedAt: new Date() }).where(eq(batchJob.id, job.id));
-        await finishIfIdle(db, n, notifier, reason);
+        await failJob(db, n, job, notifier, error instanceof Error ? error.message : String(error));
         return;
     }
     const batch = await setup.client.messages.batches.retrieve(job.externalId);
@@ -74,11 +72,26 @@ export async function pollBatch(db: DB, batchJobId: number, notifier: BatchNotif
     const results: BatchResult[] = [];
     for await (const r of await setup.client.messages.batches.results(job.externalId)) results.push(r);
 
+    // claim the results: a second poll of the same batch (a retry, another worker) finds nothing to do
+    const claimed = await db
+        .update(batchJob)
+        .set({ status: "applying" })
+        .where(and(eq(batchJob.id, job.id), eq(batchJob.status, job.status)))
+        .returning({ id: batchJob.id });
+    if (!claimed.length) return;
+
     const canceled = job.status === "canceling";
-    const retries =
-        job.kind === "extract"
-            ? await applyExtraction(db, n, job, results, setup, canceled)
-            : await applyTranslation(db, n, job, results, setup.config, setup.model, notifier, canceled);
+    let retries: Awaited<ReturnType<typeof applyExtraction>>;
+    try {
+        retries =
+            job.kind === "extract"
+                ? await applyExtraction(db, n, job, results, setup, canceled)
+                : await applyTranslation(db, n, job, results, setup.config, setup.model, notifier, canceled);
+    } catch (error) {
+        // applied in part: not applied again (that would count usage twice), the chapters still waiting are released
+        await failJob(db, n, job, notifier, `applying the batch results failed: ${error instanceof Error ? error.message : String(error)}`);
+        return;
+    }
     await db.update(batchJob).set({ status: canceled ? "canceled" : "ended", endedAt: new Date() }).where(eq(batchJob.id, job.id));
 
     if (retries.requests.length) {
@@ -102,12 +115,24 @@ export async function pollBatch(db: DB, batchJobId: number, notifier: BatchNotif
     await finishIfIdle(db, n, notifier);
 }
 
+/** Marks the batch failed and releases its chapters still waiting for it, with the reason. */
+async function failJob(db: DB, n: Novel, job: Job, notifier: BatchNotifier, reason: string): Promise<void> {
+    await db.update(batchJob).set({ status: "failed", error: reason, endedAt: new Date() }).where(eq(batchJob.id, job.id));
+    if (job.kind === "translate" && job.chapterIds.length) {
+        await db
+            .update(chapter)
+            .set({ status: "failed", error: reason, batchState: null })
+            .where(and(inArray(chapter.id, job.chapterIds), eq(chapter.status, "translating")));
+    }
+    await finishIfIdle(db, n, notifier, reason);
+}
+
 /** After a batch: with no other batch open the novel is idle again (or in error, with a reason). */
 async function finishIfIdle(db: DB, n: Novel, notifier: BatchNotifier, error?: string): Promise<void> {
     const open = await db
         .select({ id: batchJob.id })
         .from(batchJob)
-        .where(and(eq(batchJob.novelId, n.id), inArray(batchJob.status, ["in_progress", "canceling"])))
+        .where(and(eq(batchJob.novelId, n.id), inArray(batchJob.status, ["in_progress", "canceling", "applying"])))
         .limit(1);
     if (open.length) return;
     if (error) {
@@ -344,7 +369,8 @@ async function applyTranslation(
             if (!canceled) {
                 failed++;
                 await logEvent(db, n.id, "error", `chapter ${ch.index} failed: ${reason}`, ch.index);
-                await notifier.chapterFailed(n, ch.index, reason);
+                // a notification that cannot be sent (Telegram down) must not stop applying the results
+                await notifier.chapterFailed(n, ch.index, reason).catch((error) => console.error("[batch] notification failed:", error));
             }
             continue;
         }

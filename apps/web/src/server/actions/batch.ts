@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { TERM_TYPES } from "@ranobe-tl/core";
@@ -45,14 +45,20 @@ export async function cancelBatches(novelId: number) {
         await requireUser();
         const [n] = await db.select().from(novel).where(eq(novel.id, novelId));
         if (!n) throw new Error("Novel not found");
-        const jobs = await db
+        const open = await db
             .select()
             .from(batchJob)
-            .where(and(eq(batchJob.novelId, novelId), eq(batchJob.status, "in_progress")));
+            .where(and(eq(batchJob.novelId, novelId), inArray(batchJob.status, ["in_progress", "canceling"])));
+        const jobs = open.filter((j) => j.status === "in_progress");
+        // a cancel already asked for: its results still come back and are applied, nothing to reset yet
+        if (open.length && !jobs.length) return { ok: true as const, message: "Already canceling; finished requests are kept" };
         if (!jobs.length) {
-            // nothing at the provider: a novel left "running" goes back to idle
+            // nothing at the provider: a novel left "running" goes back to idle, chapters to what they were
             await db.update(novel).set({ status: "idle", statusMessage: "" }).where(eq(novel.id, novelId));
-            await db.update(chapter).set({ status: "new", batchState: null }).where(and(eq(chapter.novelId, novelId), eq(chapter.status, "translating")));
+            await db
+                .update(chapter)
+                .set({ status: sql`case when ${chapter.content} is not null then 'done' else 'new' end`, batchState: null })
+                .where(and(eq(chapter.novelId, novelId), eq(chapter.status, "translating")));
             refresh(novelId);
             return { ok: true as const, message: "No batch was running" };
         }
@@ -89,10 +95,24 @@ export async function acceptCandidate(novelId: number, key: string, choice: z.in
 export async function acceptCandidates(novelId: number, items: { key: string; choice: z.input<typeof ChoiceSchema> }[]) {
     return action(async () => {
         await requireUser();
-        for (const item of items) await acceptGroup(db, novelId, item.key, ChoiceSchema.parse(item.choice));
+        // one term that cannot be merged (locked, merged meanwhile) does not stop the others
+        const merged: string[] = [];
+        const failed: { key: string; error: string }[] = [];
+        for (const item of items) {
+            try {
+                await acceptGroup(db, novelId, item.key, ChoiceSchema.parse(item.choice));
+                merged.push(item.key);
+            } catch (error) {
+                failed.push({ key: item.key, error: error instanceof Error ? error.message : String(error) });
+            }
+        }
         await requestSync(novelId);
         refresh(novelId);
-        return { ok: true as const, message: `${items.length} terms merged` };
+        return {
+            ok: true as const,
+            data: { merged, failed },
+            message: `${merged.length} terms merged${failed.length ? `, ${failed.length} not: ${failed.map((f) => `${f.key} (${f.error})`).join("; ")}` : ""}`,
+        };
     });
 }
 

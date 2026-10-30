@@ -350,12 +350,17 @@ export function NovelForm({
     const router = useRouter();
     const [pending, start] = useTransition();
     const [glossaryStart, setGlossaryStart] = useState<GlossaryStart>({ kind: "empty" });
-    const [keyId, setKeyId] = useState<string>(initial?.providerKeyId ? String(initial.providerKeyId) : keys[0] ? String(keys[0].id) : "");
     const [mode, setMode] = useState<DecisionMode>((initial?.decisionMode as DecisionMode) ?? "queue");
     const [askNew, setAskNew] = useState<AskNewPolicy | null>((initial?.askNew as AskNewPolicy | null | undefined) ?? null);
     const [pipeline, setPipeline] = useState<Pipeline>(savedPipeline ?? "classic");
     // batches are Anthropic's: other keys are not offered
-    const usableKeys = pipeline === "batch" ? keys.filter((k) => k.provider === "anthropic") : keys;
+    const eligible = (p: Pipeline) => (p === "batch" ? keys.filter((k) => k.provider === "anthropic") : keys);
+    const usableKeys = eligible(pipeline);
+    const [keyId, setKeyId] = useState<string>(() => {
+        const list = eligible(savedPipeline ?? "classic");
+        const saved = list.find((k) => k.id === initial?.providerKeyId);
+        return saved ? String(saved.id) : list[0] ? String(list[0].id) : "";
+    });
     const choosePipeline = (p: Pipeline) => {
         setPipeline(p);
         if (p === "batch" && !keys.some((k) => String(k.id) === keyId && k.provider === "anthropic")) {

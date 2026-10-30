@@ -70,8 +70,12 @@ export function CandidatesPanel({ novelId, groups }: { novelId: number; groups: 
                 withAdvice.map((g) => ({ key: g.key, choice: defaultChoice(g) }))
             );
             if (!res.ok) return void toast.error(res.error);
-            withAdvice.forEach((g) => markDone(g.key));
-            toast.success(res.message ?? "Merged");
+            const { merged, failed } = res.data!;
+            merged.forEach(markDone);
+            if (failed.length) {
+                const source = (key: string) => withAdvice.find((g) => g.key === key)?.source ?? key;
+                toast.warning(`${merged.length} merged, ${failed.length} not`, { description: failed.map((f) => `${source(f.key)}: ${f.error}`).join("\n") });
+            } else toast.success(res.message ?? "Merged");
             router.refresh();
         });
 

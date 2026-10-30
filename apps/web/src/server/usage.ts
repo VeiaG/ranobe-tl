@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, eq, gte, min, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { novel, providerKey, usageRecord } from "@/db/schema";
-import { costOf, priceOf, getPrices, type Price } from "./pricing";
+import { costOf, priceOf, pricedModel, getPrices, type Price } from "./pricing";
 
 export const RANGES = { "7d": 7, "30d": 30, "90d": 90, all: null } as const;
 export type Range = keyof typeof RANGES;
@@ -77,7 +77,7 @@ export async function usageReport(f: UsageFilters) {
     const unpriced = new Set<string>();
     const priced = (r: Parameters<typeof cost>[0]) => {
         const c = cost(r);
-        if (c === null) unpriced.add(r.model);
+        if (c === null) unpriced.add(pricedModel(r.model));
         return c ?? 0;
     };
 

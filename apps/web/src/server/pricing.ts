@@ -45,6 +45,11 @@ export interface Tokens {
 export const BATCH_SUFFIX = ":batch";
 const BATCH_DISCOUNT = 0.5;
 
+/** The model a recorded name is priced as: "<model>:batch" → "<model>". */
+export function pricedModel(model: string): string {
+    return model.endsWith(BATCH_SUFFIX) ? model.slice(0, -BATCH_SUFFIX.length) : model;
+}
+
 /** The price of a recorded model name, batch requests included. */
 export function priceOf(prices: Record<string, Price>, model: string): Price | undefined {
     if (!model.endsWith(BATCH_SUFFIX)) return prices[model];

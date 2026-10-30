@@ -24,13 +24,14 @@ export function PricesDialog({ prices, models, isAdmin }: { prices: Record<strin
     const router = useRouter();
     const [open, setOpen] = useState(false);
     const [pending, start] = useTransition();
+    // "<model>:batch" is priced from its model (half price): the model gets the row, also when it was used only in batches
+    const used = useMemo(() => [...new Set(models.map((m) => m.replace(/:batch$/, "")))], [models]);
     const initial = useMemo(() => {
-        // "<model>:batch" is priced from its model (half price), it has no row of its own
-        const names = [...new Set([...models.filter((m) => !m.endsWith(":batch")), ...Object.keys(prices)])];
+        const names = [...new Set([...used, ...Object.keys(prices)])];
         // used models first, then the rest alphabetically
-        names.sort((a, b) => Number(!models.includes(a)) - Number(!models.includes(b)) || a.localeCompare(b));
+        names.sort((a, b) => Number(!used.includes(a)) - Number(!used.includes(b)) || a.localeCompare(b));
         return Object.fromEntries(names.map((m) => [m, toDraft(prices[m])])) as Draft;
-    }, [prices, models]);
+    }, [prices, used]);
     const [draft, setDraft] = useState<Draft>(initial);
     const [newModel, setNewModel] = useState("");
 
@@ -68,7 +69,7 @@ export function PricesDialog({ prices, models, isAdmin }: { prices: Record<strin
                             <div key={model} className="grid grid-cols-[1fr_5.5rem_5.5rem_5.5rem] items-center gap-2 border-b px-3 py-1.5 last:border-0">
                                 <span className="truncate font-mono text-xs">
                                     {model}
-                                    {models.includes(model) && <span className="ml-1.5 font-sans text-[10px] text-brand">used</span>}
+                                    {used.includes(model) && <span className="ml-1.5 font-sans text-[10px] text-brand">used</span>}
                                 </span>
                                 {(["input", "cachedInput", "output"] as const).map((f) => (
                                     <Input key={f} value={p[f]} onChange={(e) => set(model, f, e.target.value)} inputMode="decimal" placeholder="—" disabled={!isAdmin} className="h-7 text-right font-mono text-xs" />

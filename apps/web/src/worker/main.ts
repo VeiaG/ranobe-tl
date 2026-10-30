@@ -115,7 +115,13 @@ async function main() {
         await runSync(db);
     });
     await boss.work<BatchPollJob>(BATCH_POLL_QUEUE, async ([job]) => {
-        await pollBatch(db, job.data.batchJobId, notifier);
+        try {
+            await pollBatch(db, job.data.batchJobId, notifier);
+        } catch (error) {
+            // the provider or the database is down for a moment: check again later rather than give up after the job's retries
+            console.error(`[batch] poll of batch ${job.data.batchJobId} failed, trying again later:`, error);
+            await enqueueBatchPoll(job.data.batchJobId, "worker");
+        }
     });
     await boss.work<DecidedJob>(DECIDED_QUEUE, async ([job]) => {
         await telegram.decided(job.data);
