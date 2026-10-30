@@ -1,5 +1,6 @@
 import type { TranslationConfig as Config } from "../config";
 import { TERM_TYPES, Term, genderAt } from "../glossary/store";
+import { languageRules } from "./language";
 
 /**
  * Static part of the prompt. It must not depend on the chapter so that
@@ -48,7 +49,7 @@ Gender rules:
 - For a new person set gender only if the text makes it clear (pronouns, titles); otherwise "unknown".
 - If the text clearly shows a different gender than the glossary says (or reveals a gender listed as unknown), list the term again with the new gender and put an exact, verbatim quote from <source> proving it into "evidence".
 
-If you believe a glossary translation is wrong, still use it in the text, but list the term with your suggested "target" and explain why in "note". A human will review it.${config.instructions ? `\n\n## Additional instructions\n${config.instructions}` : ""}`;
+If you believe a glossary translation is wrong, still use it in the text, but list the term with your suggested "target" and explain why in "note". A human will review it.${languageRules(config, { dialogue: true })}${config.instructions ? `\n\n## Additional instructions\n${config.instructions}` : ""}`;
 }
 
 export function formatGlossary(terms: Term[], chapter: number): string {

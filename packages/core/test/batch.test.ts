@@ -83,3 +83,18 @@ test("batch prompt: source context instead of the previous translation", () => {
     assert.match(p, /<previous_source>\n…end of part one/);
     assert.match(p, /continuation chunk/);
 });
+
+test("prompts: Ukrainian rules only when translating into Ukrainian", async () => {
+    const { extractSystemPrompt, batchSystemPrompt } = await import("../src/batch/prompts");
+    const { systemPrompt } = await import("../src/pipeline/prompt");
+    const { parseConfig } = await import("../src/config");
+    const uk = parseConfig({ targetLanguage: "Ukrainian" });
+    for (const p of [systemPrompt(uk), batchSystemPrompt(uk)]) {
+        assert.match(p, /## Ukrainian\n- Format direct speech/);
+        assert.match(p, /translated by meaning, not transliterated/);
+    }
+    // the glossary has no dialogue, only names
+    assert.doesNotMatch(extractSystemPrompt(uk), /direct speech/);
+    assert.match(extractSystemPrompt(uk), /transliterate only names that have no meaning in English/);
+    assert.doesNotMatch(batchSystemPrompt(parseConfig({ targetLanguage: "Polish" })), /## Ukrainian/);
+});

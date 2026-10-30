@@ -1,5 +1,6 @@
 import type { TranslationConfig as Config } from "../config";
 import { TERM_TYPES, type Term } from "../glossary/store";
+import { languageRules } from "../pipeline/language";
 import { formatGlossary } from "../pipeline/prompt";
 
 function about(config: Config): string {
@@ -31,7 +32,7 @@ Rules:
 - "gender" only for type "person": "m" or "f" when the text makes it clear (pronouns, titles, forms of address), otherwise "unknown".
 - Titles and ranks ("Saintess", "Elder", "Patriarch", "Young Master") are type "rank", never "person", and have no gender: give the neutral or masculine base form; the translator puts it in the holder's gender. A title used for a woman is not a reason to give it a feminine "target".
 - "evidence" is copied character for character from <source>, at most one sentence.
-- An empty chapter or a chapter without terms: [].${config.instructions ? `\n\n## Notes from the user about this novel\n${config.instructions}` : ""}`;
+- An empty chapter or a chapter without terms: [].${languageRules(config, { dialogue: false })}${config.instructions ? `\n\n## Notes from the user about this novel\n${config.instructions}` : ""}`;
 }
 
 export function extractUserPrompt(opts: { text: string; terms: Term[]; chapter: number }): string {
@@ -65,7 +66,7 @@ the full translated text, without the title
 </translation>
 
 Omit <title> when the user message says the text is a continuation chunk.
-No markdown, no code fences, no commentary.${config.instructions ? `\n\n## Additional instructions\n${config.instructions}` : ""}`;
+No markdown, no code fences, no commentary.${languageRules(config, { dialogue: true })}${config.instructions ? `\n\n## Additional instructions\n${config.instructions}` : ""}`;
 }
 
 export function batchUserPrompt(opts: {

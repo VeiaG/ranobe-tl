@@ -79,6 +79,8 @@ The folders are what matters; for a full copy of everything (accounts, activity 
 
 Titles and ranks are kept in their base form and put in the holder's gender while translating, so a title held by a woman never becomes a separate entry. Batches cost half the list price (Usage shows them as `<model>:batch`) and usually finish within an hour, at most a day. "Extract terms again" re-reads a range of chapters with the current glossary, e.g. after new chapters were uploaded.
 
+**Translating into Ukrainian**, every prompt (both modes) also asks for direct speech with an em dash and no quotation marks, and to transliterate only names without a meaning in the source language (Chinese, Korean, Japanese names); titles, nicknames, guilds, places, skills and the like are translated by meaning. Anything specific to one novel (a game called Glory → «Слава») goes into its fixed terms or extra instructions.
+
 **Glossary rules** (the same as the CLI had):
 - new term → added (spelling variants of an existing term are not)
 - gender unknown → m/f → applied retroactively
