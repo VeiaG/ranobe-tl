@@ -2,13 +2,13 @@ import { and, eq, sql } from "drizzle-orm";
 import { generateText } from "ai";
 import { Glossary, batchSystemPrompt, batchUserPrompt, createModel, wellFormed } from "@ranobe-tl/core";
 import type { DB } from "@/db";
-import { chapter, novel, usageRecord } from "@/db/schema";
+import { chapter, exchange, novel, usageRecord } from "@/db/schema";
 import { decrypt } from "@/lib/crypto";
 import { logEvent } from "@/server/activity";
 import { budgetStop } from "@/server/budget";
 import { PgGlossaryStore } from "@/server/glossary-store";
 import { requestSync } from "@/server/queue";
-import { checkChunk, completeChapter, finishIfIdle, type BatchNotifier } from "./ingest";
+import { checkChunk, completeChapter, finishIfIdle, rejectedOf, type BatchNotifier } from "./ingest";
 import { batchSetup } from "./submit";
 
 /**
@@ -26,7 +26,7 @@ export async function translateDirect(db: DB, chapterId: number, notifier: Batch
     const fail = async (reason: string) => {
         await db
             .update(chapter)
-            .set({ status: "failed", error: reason, batchState: null, attempts: state.attempts.reduce((a, b) => a + b, 0) })
+            .set({ status: "failed", error: reason, batchState: null, rejected: rejectedOf(state), attempts: state.attempts.reduce((a, b) => a + b, 0) })
             .where(and(eq(chapter.id, ch.id), eq(chapter.status, "translating")));
         await logEvent(db, n.id, "error", `chapter ${ch.index} failed: ${reason}`, ch.index);
         await notifier.chapterFailed(n, ch.index, reason).catch((error) => console.error("[batch] notification failed:", error));
@@ -80,10 +80,13 @@ export async function translateDirect(db: DB, chapterId: number, notifier: Batch
                 if (res.finishReason === "length") stop = "output hit the token limit";
                 if (res.finishReason === "content-filter") stop = "blocked by the content filter";
             } catch (error) {
+                const message = `request failed: ${error instanceof Error ? error.message : String(error)}`;
                 state.feedback[c] = null;
-                await logEvent(db, n.id, "warning", `chunk ${c + 1}, attempt ${attempt}: request failed: ${error instanceof Error ? error.message : String(error)}`, ch.index);
+                await db.insert(exchange).values({ novelId: n.id, chapter: ch.index, chunk: c, attempt, prompt, output: message });
+                await logEvent(db, n.id, "warning", `chunk ${c + 1}, attempt ${attempt}: ${message}`, ch.index);
                 continue;
             }
+            await db.insert(exchange).values({ novelId: n.id, chapter: ch.index, chunk: c, attempt, prompt, output });
             const accepted = await checkChunk(db, n.id, ch.index, state, c, attempt, output, stop, config);
             const tokens = { input: usage.inputTokens ?? 0, cached: usage.inputTokenDetails?.cacheReadTokens ?? 0, output: usage.outputTokens ?? 0 };
             await db.insert(usageRecord).values({

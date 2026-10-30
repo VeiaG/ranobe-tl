@@ -209,6 +209,7 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
                     duration,
                     translatedAt: new Date(),
                     draft: null,
+                    rejected: null,
                     ...tokens,
                 })
                 .where(eq(chapter.id, ch.id));
@@ -223,7 +224,8 @@ export async function translateNext(db: DB, novelId: number, notifier: Notifier)
         case "failed": {
             await db
                 .update(chapter)
-                .set({ status: "failed", error: result.reason, attempts: result.attempts, model, duration, draft: null, ...tokens })
+                // what validation rejected stays, for "Use it anyway" in the reader
+                .set({ status: "failed", error: result.reason, attempts: result.attempts, model, duration, draft: null, rejected: result.rejected ?? null, ...tokens })
                 .where(eq(chapter.id, ch.id));
             const [{ failStreak }] = await db
                 .update(novel)

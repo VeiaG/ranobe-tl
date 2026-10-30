@@ -98,7 +98,23 @@ test("translator: chapter fails after maxAttempts", async () => {
     const glossary = await Glossary.load(new MemoryGlossaryStore());
     const res = await new Translator(parseConfig({ maxAttempts: 2 }), setup(model), glossary).translateChapter(2, source);
     assert.equal(res.status, "failed");
-    if (res.status === "failed") assert.match(res.reason, /missing <translation>/);
+    if (res.status === "failed") {
+        assert.match(res.reason, /missing <translation>/);
+        assert.equal(res.rejected, undefined, "nothing came back to take");
+    }
+});
+
+test("translator: a failed chapter keeps the last rejected attempt to take anyway", async () => {
+    const source = "Title\n\n" + "Some text here. ".repeat(100);
+    const model = new MockLanguageModelV3({ doGenerate: async () => reply("<title>Назва</title>\n<translation>\nЗанадто коротко.\n</translation>") });
+    const glossary = await Glossary.load(new MemoryGlossaryStore());
+    const res = await new Translator(parseConfig({ maxAttempts: 2 }), setup(model), glossary).translateChapter(2, source);
+    assert.equal(res.status, "failed");
+    if (res.status !== "failed") return;
+    assert.deepEqual(res.rejected?.parts, ["Занадто коротко."]);
+    assert.equal(res.rejected?.title, "Назва");
+    assert.match(res.rejected!.problems[0], /too short/);
+    assert.equal(res.rejected?.sources.length, 1);
 });
 
 test("translator: short sources are skipped without a request", async () => {

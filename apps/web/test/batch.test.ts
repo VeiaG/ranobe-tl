@@ -33,6 +33,8 @@ function respond(customId: string, params: Params): string {
     }
     // the first attempt at the chunk marked FAILME comes back untranslated
     if (source.includes("FAILME") && !prompt.includes("IMPORTANT: your previous attempt")) return `<translation>\n${source}\n</translation>`;
+    // never good enough: a summary of the source
+    if (source.includes("TOOSHORT")) return `<title>Розділ 4</title>\n<translation>\nКоротко.\n</translation>`;
     const body = "Переклад тексту. ".repeat(Math.ceil(source.length / 17)).slice(0, source.length);
     return `<title>Розділ</title>\n<translation>\n${body}\n</translation>`;
 }
@@ -301,4 +303,66 @@ test("batch: a few chapters are translated right away, without a batch", { skip:
     assert.deepEqual(usage.map((u) => u.ok), [false, true], "full-price requests, the rejected one marked");
     const [n] = await db.select().from(schema.novel).where(eq(schema.novel.id, novelId));
     assert.equal(n.status, "idle");
+});
+
+test("batch: every request is logged; a rejected translation can be taken anyway", { skip: !enabled }, async () => {
+    const { submitTranslation } = await import("@/server/batch/submit");
+    const { translateDirect } = await import("@/server/batch/direct");
+    const { acceptRejected } = await import("@/server/rejected");
+    const { inArray } = await import("drizzle-orm");
+
+    // the batch requests of chapter 1 are in its log, with the output
+    const log = await db.select().from(schema.exchange).where(and(eq(schema.exchange.novelId, novelId), eq(schema.exchange.chapter, 1)));
+    assert.deepEqual(log.map((e) => e.chunk).sort(), [-1, 0], "extraction (-1) and translation");
+    assert.ok(log.every((e) => e.prompt.includes("<source>") && e.output.length > 0));
+
+    await db.update(schema.novel).set({ status: "idle", settings: { validation: { minSourceChars: 10 }, maxAttempts: 1 } }).where(eq(schema.novel.id, novelId));
+    const [ch] = await db
+        .insert(schema.chapter)
+        .values({ novelId, index: 4, sourceTitle: "Chapter 4", source: "Chapter 4\n\nTOOSHORT A long passage that the model keeps summarizing into a single short line." })
+        .returning();
+    await submitTranslation(db, novelId, and(eq(schema.chapter.novelId, novelId), inArray(schema.chapter.index, [4])), { direct: true });
+    await translateDirect(db, ch.id, silent);
+    const [failed] = await db.select().from(schema.chapter).where(eq(schema.chapter.id, ch.id));
+    assert.equal(failed.status, "failed");
+    assert.deepEqual(failed.rejected?.parts, ["Коротко."]);
+    assert.match(failed.rejected!.problems[0], /too short/);
+    assert.equal((await db.select().from(schema.exchange).where(and(eq(schema.exchange.novelId, novelId), eq(schema.exchange.chapter, 4)))).length, 1);
+
+    assert.deepEqual(await acceptRejected(db, novelId, 4), { done: true });
+    const [taken] = await db.select().from(schema.chapter).where(eq(schema.chapter.id, ch.id));
+    assert.equal(taken.status, "done");
+    assert.equal(taken.content, "Коротко.");
+    assert.equal(taken.title, "Розділ 4");
+    assert.equal(taken.rejected, null);
+});
+
+test("classic: a rejected part taken anyway becomes a draft, the rest is translated by the run", { skip: !enabled }, async () => {
+    const { acceptRejected } = await import("@/server/rejected");
+    const { chunkText, cleanSource, parseConfig } = await import("@ranobe-tl/core");
+    const [n] = await db
+        .insert(schema.novel)
+        .values({ title: `classic ${Date.now()}`, providerKeyId: keyId, model: "claude-haiku-5-5", settings: { chunkSize: 1000, validation: { minSourceChars: 10 } } })
+        .returning();
+    try {
+        const source = "Chapter 1\n\n" + Array.from({ length: 30 }, (_, i) => `Paragraph ${i} with enough words to fill the chunk.`).join("\n\n");
+        const chunks = chunkText(cleanSource(source, parseConfig({ chunkSize: 1000 })), 1000);
+        assert.ok(chunks.length >= 2);
+        await db.insert(schema.chapter).values({
+            novelId: n.id,
+            index: 1,
+            source,
+            status: "failed",
+            rejected: { sources: chunks.slice(0, 1), parts: ["Перша частина."], title: "Розділ 1", problems: { 0: "loop" } },
+        });
+        assert.deepEqual(await acceptRejected(db, n.id, 1), { done: false });
+        const [ch] = await db.select().from(schema.chapter).where(eq(schema.chapter.novelId, n.id));
+        assert.equal(ch.status, "queued");
+        assert.deepEqual(ch.draft, { sources: chunks.slice(0, 1), parts: ["Перша частина."], title: "Розділ 1", terms: [] });
+        assert.equal(ch.rejected, null);
+        const [running] = await db.select().from(schema.novel).where(eq(schema.novel.id, n.id));
+        assert.equal(running.status, "running");
+    } finally {
+        await db.delete(schema.novel).where(eq(schema.novel.id, n.id));
+    }
 });

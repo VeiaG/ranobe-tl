@@ -17,12 +17,25 @@ export interface Usage {
 export type ChapterResult =
     | { status: "done"; title: string; content: string; attempts: number; ratio: number; usage: Usage }
     | { status: "skipped"; reason: string }
-    | { status: "failed"; attempts: number; reason: string; usage: Usage }
+    /** `rejected`: the chunks translated so far and the last rejected attempt, for a human to accept anyway. */
+    | { status: "failed"; attempts: number; reason: string; usage: Usage; rejected?: RejectedTranslation }
     /**
      * A chunk proposed glossary changes and the handler asked to wait for a decision. The chunks translated
      * so far (the paused one last) come back as a draft to continue from; `pending` are the paused chunk's changes.
      */
     | { status: "paused"; attempts: number; usage: Usage; draft: ChapterDraft; pending: PendingOutcome[] };
+
+/**
+ * A chapter that failed validation, kept so a human can look at it and take it anyway (the checks are
+ * heuristics: a source that repeats itself, a few merged paragraphs). `parts` are the accepted chunks and
+ * the rejected attempts, in order; null where nothing usable came back. `problems` by chunk index.
+ */
+export interface RejectedTranslation {
+    sources: string[];
+    parts: (string | null)[];
+    title?: string;
+    problems: Record<number, string>;
+}
 
 /** Chunks of a chapter translated before a pause. Passed back to translateChapter, they are not translated again. */
 export interface ChapterDraft {
@@ -128,7 +141,13 @@ export class Translator {
             }
             attempts += result.attempts;
             if (!result.ok) {
-                return { status: "failed", attempts, reason: `chunk ${c + 1}/${chunks.length}: ${result.reason}`, usage: usage() };
+                const rejected: RejectedTranslation | undefined = result.rejected && {
+                    sources: chunks.slice(0, c + 1),
+                    parts: [...parts, result.rejected.translation],
+                    title: c === 0 ? result.rejected.title : title,
+                    problems: { [c]: result.reason },
+                };
+                return { status: "failed", attempts, reason: `chunk ${c + 1}/${chunks.length}: ${result.reason}`, usage: usage(), rejected };
             }
             if (c === 0) title = result.title;
             parts.push(result.translation);
@@ -152,9 +171,13 @@ export class Translator {
         totalChunks: number,
         previousContext?: string,
         ask = true
-    ): Promise<{ ok: true; translation: string; title?: string; attempts: number } | { ok: false; reason: string; attempts: number }> {
+    ): Promise<
+        { ok: true; translation: string; title?: string; attempts: number } | { ok: false; reason: string; attempts: number; rejected?: { translation: string; title?: string } }
+    > {
         let feedback: string | undefined;
         let lastReason = "";
+        // the last attempt that came back with text but failed validation
+        let rejected: { translation: string; title?: string } | undefined;
         // Latin share of the previous attempt when that was its only problem.
         let previousLatin: number | undefined;
 
@@ -193,6 +216,7 @@ export class Translator {
             const validation = validateTranslation(text, parsed.translation, this.config, parsed.problems);
             if (!validation.ok) {
                 lastReason = validation.problems.join("; ");
+                if (parsed.translation.trim()) rejected = { translation: parsed.translation, title: parsed.title };
                 await this.emit({ type: "attempt-failed", chapter, chunk, attempt, reason: lastReason });
                 // The same amount of Latin twice in a row means the text really has it
                 // (names, game terms, English inserts): another retry will not change it.
@@ -222,7 +246,7 @@ export class Translator {
             await this.emit({ type: "second-pass-failed", chapter, chunk });
             return { ...result, attempts: attempt + again.attempts };
         }
-        return { ok: false, reason: lastReason, attempts: this.config.maxAttempts };
+        return { ok: false, reason: lastReason, attempts: this.config.maxAttempts, rejected };
     }
 
     /** Applies the proposed terms and returns the changes that wait for a decision. */

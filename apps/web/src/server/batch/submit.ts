@@ -1,4 +1,4 @@
-import { and, asc, between, eq, inArray, isNull, ne, type SQL } from "drizzle-orm";
+import { and, asc, between, eq, gte, inArray, isNull, ne, type SQL } from "drizzle-orm";
 import {
     Glossary,
     batchClient,
@@ -15,7 +15,7 @@ import {
     type TranslationConfig,
 } from "@ranobe-tl/core";
 import type { DB } from "@/db";
-import { batchJob, chapter, novel, providerKey, type BatchChapterState, type BatchKind } from "@/db/schema";
+import { batchJob, chapter, exchange, novel, providerKey, type BatchChapterState, type BatchKind } from "@/db/schema";
 import { decrypt } from "@/lib/crypto";
 import { logEvent } from "@/server/activity";
 import { budgetStop } from "@/server/budget";
@@ -52,6 +52,9 @@ export async function batchSetup(db: DB, n: Novel) {
     };
 }
 
+/** Up to this many chapters picked by hand are translated right away rather than in a batch. */
+export const DIRECT_UP_TO = 10;
+
 /** Request ids carry what the result belongs to: "e-<chapter id>-<attempt>", "t-<chapter id>-<chunk>-<attempt>". */
 export function parseCustomId(id: string): { kind: "extract"; chapterId: number; attempt: number } | { kind: "translate"; chapterId: number; chunk: number; attempt: number } | undefined {
     const e = id.match(/^e-(\d+)-(\d+)$/);
@@ -75,8 +78,51 @@ export async function createBatch(db: DB, n: Novel, kind: BatchKind, requests: B
         .update(novel)
         .set({ status: "running", statusMessage: `${kind === "extract" ? "Extracting terms" : "Translating"}: batch of ${requests.length} requests sent`, stopRequested: false, failStreak: 0 })
         .where(eq(novel.id, n.id));
+    await logRequests(db, n.id, requests);
     await enqueueBatchPoll(job.id, role);
     return job.id;
+}
+
+/** Term extraction is logged as chunk -1 of the chapter; translation chunks as themselves. */
+export const EXTRACT_CHUNK = -1;
+
+/**
+ * Keeps the prompt of every request in the chapter's log (the reader's "N requests"); the output is filled in
+ * when the result comes back. Like the chapter-by-chapter run, a chapter keeps the requests of its last run.
+ */
+async function logRequests(db: DB, novelId: number, requests: BatchRequest[]) {
+    const ids = requests.flatMap((r) => {
+        const id = parseCustomId(r.custom_id);
+        return id ? [id] : [];
+    });
+    if (!ids.length) return;
+    const indexes = new Map(
+        (await db.select({ id: chapter.id, index: chapter.index }).from(chapter).where(inArray(chapter.id, [...new Set(ids.map((i) => i.chapterId))]))).map((c) => [c.id, c.index])
+    );
+    const rows = requests.flatMap((r) => {
+        const id = parseCustomId(r.custom_id);
+        const index = id && indexes.get(id.chapterId);
+        if (!id || index === undefined) return [];
+        const content = r.params.messages[0]?.content;
+        return [{ novelId, chapter: index, chunk: id.kind === "extract" ? EXTRACT_CHUNK : id.chunk, attempt: id.attempt, prompt: typeof content === "string" ? content : "", output: "" }];
+    });
+    for (let i = 0; i < rows.length; i += 500) await db.insert(exchange).values(rows.slice(i, i + 500));
+}
+
+/** Fills in the output of a logged request. */
+export async function logResult(db: DB, novelId: number, at: { chapter: number; chunk: number; attempt: number }, output: string) {
+    await db
+        .update(exchange)
+        .set({ output })
+        .where(and(eq(exchange.novelId, novelId), eq(exchange.chapter, at.chapter), eq(exchange.chunk, at.chunk), eq(exchange.attempt, at.attempt)));
+}
+
+/** A new run of a chapter starts a new log (extraction and translation separately). */
+async function clearLog(db: DB, novelId: number, indexes: number[], kind: "extract" | "translate") {
+    if (!indexes.length) return;
+    await db
+        .delete(exchange)
+        .where(and(eq(exchange.novelId, novelId), inArray(exchange.chapter, indexes), kind === "extract" ? eq(exchange.chunk, EXTRACT_CHUNK) : gte(exchange.chunk, 0)));
 }
 
 /** The glossary as the batch requests see it: fixed terms plus everything merged so far. */
@@ -134,6 +180,7 @@ export async function submitExtraction(db: DB, novelId: number, scope: ExtractSc
         ids.push(ch.id);
     }
     if (!requests.length) throw new Error("No chapters to extract terms from in this selection");
+    await clearLog(db, novelId, rows.filter((r) => ids.includes(r.id)).map((r) => r.index), "extract");
     await createBatch(db, n, "extract", requests, ids);
     await logEvent(db, novelId, "info", `term extraction sent for ${requests.length} chapters (batch)`);
     return requests.length;
@@ -205,6 +252,7 @@ export async function submitTranslation(
     }
 
     const ids = [...states.keys()];
+    await clearLog(db, novelId, rows.filter((r) => states.has(r.id)).map((r) => r.index), "translate");
     if (opts.direct) {
         const overBudget = await budgetStop(db, n, key);
         if (overBudget) throw new Error(overBudget);
@@ -214,7 +262,7 @@ export async function submitTranslation(
     for (const [id, state] of states) {
         await db
             .update(chapter)
-            .set({ status: "translating", batchState: state, error: "", draft: null, inputTokens: 0, cachedTokens: 0, outputTokens: 0, attempts: 0 })
+            .set({ status: "translating", batchState: state, error: "", draft: null, rejected: null, inputTokens: 0, cachedTokens: 0, outputTokens: 0, attempts: 0 })
             .where(eq(chapter.id, id));
     }
     if (opts.direct) {

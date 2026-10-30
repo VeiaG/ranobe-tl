@@ -9,6 +9,7 @@ import {
     validateTranslation,
     looseKey,
     type BatchResult,
+    type RejectedTranslation,
     type TranslationConfig,
     type Usage,
 } from "@ranobe-tl/core";
@@ -20,7 +21,7 @@ import { PgGlossaryStore } from "@/server/glossary-store";
 import { enqueueBatchPoll, requestSync } from "@/server/queue";
 import { keepVersion } from "@/server/versions";
 import { autoResolve } from "./merge";
-import { batchSetup, createBatch, extractRequest, parseCustomId, translateRequest, type BatchRequest } from "./submit";
+import { EXTRACT_CHUNK, batchSetup, createBatch, extractRequest, logResult, parseCustomId, translateRequest, type BatchRequest } from "./submit";
 
 type Novel = typeof novel.$inferSelect;
 type Job = typeof batchJob.$inferSelect;
@@ -156,8 +157,28 @@ export async function checkChunk(
     }
     state.feedback[c] = v.problems.join("; ");
     state.latin[c] = v.latinOnly ? v.latinPercent : null;
+    if (parsed.translation.trim()) {
+        state.rejected ??= state.sources.map(() => null);
+        state.rejected[c] = parsed.translation;
+        if (c === 0) state.rejectedTitle = parsed.title;
+    }
     await logEvent(db, novelId, "warning", `chunk ${c + 1}, attempt ${attempt}: ${state.feedback[c]}`, index);
     return false;
+}
+
+/**
+ * A failed chapter as a human can take it anyway: the accepted chunks, and for the others the last attempt
+ * validation rejected. Undefined when no rejected attempt came back at all.
+ */
+export function rejectedOf(state: BatchChapterState): RejectedTranslation | null {
+    if (!state.rejected?.some((r) => r !== null)) return null;
+    const problems: Record<number, string> = {};
+    const parts = state.parts.map((p, c) => {
+        if (p !== null) return p;
+        if (state.feedback[c]) problems[c] = state.feedback[c]!;
+        return state.rejected?.[c] ?? null;
+    });
+    return { sources: state.sources, parts, title: state.title ?? state.rejectedTitle, problems };
 }
 
 /** Saves a chapter whose chunks are all translated; the text it replaces goes to the history. */
@@ -184,6 +205,7 @@ export async function completeChapter(
             duration: null,
             translatedAt: new Date(),
             batchState: null,
+            rejected: null,
             ...(extra as object),
         })
         .where(and(eq(chapter.id, ch.id), eq(chapter.status, "translating")));
@@ -284,6 +306,7 @@ async function applyExtraction(
         const ch = id && chapters.get(id.chapterId);
         if (!id || id.kind !== "extract" || !ch) continue;
         let problem: string;
+        await logResult(db, n.id, { chapter: ch.index, chunk: EXTRACT_CHUNK, attempt: id.attempt }, r.result.type === "succeeded" ? messageText(r.result.message) : resultError(r));
         if (r.result.type === "succeeded") {
             const message = r.result.message;
             const parsed = parseExtraction(messageText(message));
@@ -372,6 +395,7 @@ async function applyTranslation(
         const tokens = { input: 0, cachedInput: 0, output: 0 };
 
         for (const { result: r, chunk: c, attempt } of items) {
+            await logResult(db, n.id, { chapter: ch.index, chunk: c, attempt }, r.result.type === "succeeded" ? messageText(r.result.message) : resultError(r));
             if (r.result.type !== "succeeded") {
                 if (live && c < state.sources.length) {
                     state.attempts[c] = Math.max(state.attempts[c], attempt);
@@ -416,7 +440,11 @@ async function applyTranslation(
             const reason = canceled ? "the batch was canceled" : `chunk ${exhausted! + 1}/${state.sources.length}: ${state.feedback[exhausted!] ?? "no usable reply"}`;
             await db
                 .update(chapter)
-                .set(canceled ? { status: ch.content ? "done" : "new", batchState: null, ...addTokens } : { status: "failed", error: reason, attempts, model, batchState: null, ...addTokens })
+                .set(
+                    canceled
+                        ? { status: ch.content ? "done" : "new", batchState: null, ...addTokens }
+                        : { status: "failed", error: reason, attempts, model, batchState: null, rejected: rejectedOf(state), ...addTokens }
+                )
                 .where(eq(chapter.id, ch.id));
             if (!canceled) {
                 failed++;

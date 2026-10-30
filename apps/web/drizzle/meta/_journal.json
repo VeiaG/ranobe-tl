@@ -57,6 +57,13 @@
       "when": 1793356708338,
       "tag": "0007_batch_pipeline",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793392443814,
+      "tag": "0008_rejected_translation",
+      "breakpoints": true
     }
   ]
 }
