@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { TranslationConfig } from "../config";
 import type { Usage } from "../pipeline/translator";
+import { wellFormed } from "../pipeline/text";
 
 export type BatchParams = Anthropic.Messages.MessageCreateParamsNonStreaming;
 export type BatchResult = Anthropic.Messages.Batches.MessageBatchIndividualResponse;
@@ -19,8 +20,8 @@ export function batchParams(opts: { model: string; system: string; prompt: strin
     return {
         model: opts.model,
         max_tokens: opts.maxTokens,
-        system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: opts.prompt }],
+        system: [{ type: "text", text: wellFormed(opts.system), cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: wellFormed(opts.prompt) }],
         ...(opts.effort ? { output_config: { effort: opts.effort } } : {}),
     };
 }

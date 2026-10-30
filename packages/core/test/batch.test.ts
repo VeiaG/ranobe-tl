@@ -98,3 +98,16 @@ test("prompts: Ukrainian rules only when translating into Ukrainian", async () =
     assert.match(extractSystemPrompt(uk), /transliterate only names that have no meaning in English/);
     assert.doesNotMatch(batchSystemPrompt(parseConfig({ targetLanguage: "Polish" })), /## Ukrainian/);
 });
+
+test("text: a cut through an emoji leaves no lone surrogate", async () => {
+    const { wellFormed } = await import("../src/pipeline/text");
+    const emoji = "a😀b";
+    const cut = emoji.slice(0, 2); // "a" + the high half of the emoji
+    assert.equal(wellFormed(cut), "a�");
+    assert.equal(wellFormed(emoji.slice(2)), "�b");
+    assert.equal(wellFormed(emoji), emoji);
+    assert.doesNotThrow(() => JSON.parse(JSON.stringify(wellFormed(cut))));
+    const { batchParams } = await import("../src/batch/anthropic");
+    const p = batchParams({ model: "m", system: cut, prompt: `context ${cut}`, maxTokens: 10 });
+    assert.equal(p.messages[0].content, "context a�");
+});
