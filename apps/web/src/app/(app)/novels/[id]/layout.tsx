@@ -1,3 +1,4 @@
+import { BatchControls } from "@/components/novel/batch-controls";
 import { NovelLive } from "@/components/novel/live";
 import { LiveStatus } from "@/components/novel/live-status";
 import { NovelTabs } from "@/components/novel/novel-tabs";
@@ -14,6 +15,15 @@ export default async function NovelLayout({ params, children }: { params: Promis
     const [d, range] = await Promise.all([getNovel(id), chapterIndexRange(id)]);
     const n = d.novel;
     const untranslated = d.total - d.done - d.failed - d.skipped - d.queued;
+    const counts = {
+        total: d.total,
+        done: d.done,
+        failed: d.failed,
+        queued: d.queued,
+        untranslated,
+        minIndex: range.min ?? 1,
+        maxIndex: range.max ?? 1,
+    };
     return (
         <NovelLive novelId={n.id} initialStatus={n.status} initialMessage={n.statusMessage}>
             <div className="border-b bg-background">
@@ -30,23 +40,15 @@ export default async function NovelLayout({ params, children }: { params: Promis
                             <LiveStatus />
                         </div>
                         <div className="flex shrink-0 flex-wrap gap-2">
-                            <RunControls
-                                novelId={n.id}
-                                hasKey={!!d.key}
-                                counts={{
-                                    total: d.total,
-                                    done: d.done,
-                                    failed: d.failed,
-                                    queued: d.queued,
-                                    untranslated,
-                                    minIndex: range.min ?? 1,
-                                    maxIndex: range.max ?? 1,
-                                }}
-                            />
+                            {n.pipeline === "batch" ? (
+                                <BatchControls novelId={n.id} hasKey={!!d.key} counts={counts} extracted={d.extracted} candidates={d.candidates} />
+                            ) : (
+                                <RunControls novelId={n.id} hasKey={!!d.key} counts={counts} />
+                            )}
                         </div>
                     </div>
                     <div className="mt-6">
-                        <NovelTabs novelId={n.id} counts={{ chapters: d.total, terms: d.terms, pending: d.pending }} />
+                        <NovelTabs novelId={n.id} batch={n.pipeline === "batch"} counts={{ chapters: d.total, terms: d.terms, pending: d.pending, candidates: d.candidates }} />
                     </div>
                 </div>
             </div>

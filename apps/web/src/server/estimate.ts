@@ -1,9 +1,9 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { PROVIDER_DEFAULTS, type Provider } from "@ranobe-tl/core";
 import type { DB } from "@/db";
 import { chapter, novel, providerKey, usageRecord } from "@/db/schema";
 import { spent } from "./budget";
-import { costOf, getPrices } from "./pricing";
+import { BATCH_SUFFIX, costOf, getPrices, priceOf } from "./pricing";
 import { scopeWhere, type RunScope } from "./scope";
 
 /** Below this many translated chapters the novel's own history is too thin to extrapolate from. */
@@ -39,15 +39,18 @@ export async function estimateRun(db: DB, novelId: number, scope: RunScope): Pro
 
     const { usd: spentUsd } = await spent(db, eq(usageRecord.novelId, novelId));
     const prices = await getPrices(db);
-    const price = prices[model];
+    // batches cost half; their usage is recorded as "<model>:batch"
+    const price = priceOf(prices, n.pipeline === "batch" ? `${model}${BATCH_SUFFIX}` : model);
 
     // the novel's own cost per source character, failures included, is the best predictor
     const [done] = await db
         .select({ chapters: sql<number>`count(*)::int`, chars: sql<number>`coalesce(sum(length(${chapter.source})), 0)::float8` })
         .from(chapter)
         .where(and(eq(chapter.novelId, novelId), eq(chapter.status, "done")));
-    if (done.chapters >= MIN_HISTORY_CHAPTERS && done.chars > 0 && spentUsd > 0) {
-        return { chapters: sel.chapters, chars: sel.chars, usd: (spentUsd / done.chars) * sel.chars, model, basis: "history", spentUsd, budgetUsd: n.budgetUsd };
+    // only the translation requests (they carry a chunk): term extraction and helper requests are not paid per chapter again
+    const { usd: translatedUsd } = await spent(db, and(eq(usageRecord.novelId, novelId), isNotNull(usageRecord.chunk)));
+    if (done.chapters >= MIN_HISTORY_CHAPTERS && done.chars > 0 && translatedUsd > 0) {
+        return { chapters: sel.chapters, chars: sel.chars, usd: (translatedUsd / done.chars) * sel.chars, model, basis: "history", spentUsd, budgetUsd: n.budgetUsd };
     }
 
     const requests = Math.max(sel.chapters, 1);

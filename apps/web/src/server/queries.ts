@@ -40,10 +40,16 @@ export async function listNovels() {
 }
 export type NovelListItem = Awaited<ReturnType<typeof listNovels>>[number];
 
+/** Batch pipeline: terms waiting in Candidates, chapters whose terms were extracted. */
+const batchCounts = {
+    candidates: sql<number>`(select count(distinct tc.group_key) from term_candidate tc where tc.novel_id = "novel"."id" and tc.status = 'pending')::int`,
+    extracted: countChapters("c.extracted_at is not null"),
+};
+
 export async function getNovel(id: number) {
     if (!Number.isInteger(id)) notFound();
     const [row] = await db
-        .select({ novel, key: providerKey, ...chapterCounts })
+        .select({ novel, key: providerKey, ...chapterCounts, ...batchCounts })
         .from(novel)
         .leftJoin(providerKey, eq(providerKey.id, novel.providerKeyId))
         .where(eq(novel.id, id));

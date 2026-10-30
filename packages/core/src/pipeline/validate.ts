@@ -10,7 +10,7 @@ export interface Validation {
 }
 
 const LEAK_PATTERNS: [RegExp, string][] = [
-    [/<\/?(?:title|translation|terms|source|glossary|previous_translation)>/i, "prompt tags left in the text"],
+    [/<\/?(?:title|translation|terms|source|glossary|previous_translation|previous_source)>/i, "prompt tags left in the text"],
     [/```/, "code fence in the text"],
     [/^\s*[{[]\s*"/, "text looks like JSON"],
     [/\[(?:person|place|organization|technique|item|rank|creature|other)(?:,|\])/, "glossary annotation copied into the text"],

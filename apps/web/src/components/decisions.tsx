@@ -89,7 +89,7 @@ export function DecisionList({ groups, showNovel, waiting }: { groups: DecisionG
 }
 
 /** The Replace tab's assistant with a task to bring old translations of a term in line with its new one. */
-function assistantLink(novelId: number, source: string, old: string, next: string, chapters: number[]) {
+export function assistantLink(novelId: number, source: string, old: string, next: string, chapters: number[]) {
     const where = chapters.length > 80 ? `${chapters.length} chapters` : `chapters ${chapters.join(", ")}`;
     const task = `The term “${source}” is now translated as “${next}”; it used to be “${old}”. Find the old translation and any other variants of it, in every grammatical form, in the translated chapters, and propose edits to the new translation in the right form. The source mentions it in ${where}.`;
     return `/novels/${novelId}/replace?mode=assistant&task=${encodeURIComponent(task)}`;

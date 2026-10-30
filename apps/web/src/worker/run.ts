@@ -28,6 +28,8 @@ export type StepOutcome = "next" | "stop" | "defer";
 export async function translateNext(db: DB, novelId: number, notifier: Notifier): Promise<StepOutcome> {
     const [n] = await db.select().from(novel).where(eq(novel.id, novelId));
     if (!n || n.status !== "running") return "stop";
+    // batch novels are driven by their batches (see server/batch), never chapter by chapter
+    if (n.pipeline === "batch") return "stop";
 
     const [ch] = await db
         .select()

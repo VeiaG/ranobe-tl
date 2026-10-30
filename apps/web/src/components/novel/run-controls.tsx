@@ -165,13 +165,15 @@ function usd(n: number) {
     return n >= 100 ? `$${n.toFixed(0)}` : n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(3)}`;
 }
 
-function StartDialog({
+export function StartDialog({
     novelId,
     open,
     onOpenChange,
     counts,
     pending,
     onStart,
+    description = "Chapters are translated strictly in order, so terms found in one chapter are known in the next.",
+    note,
 }: {
     novelId: number;
     open: boolean;
@@ -179,6 +181,9 @@ function StartDialog({
     counts: RunCounts;
     pending: boolean;
     onStart: (scope: RunScope) => void;
+    description?: string;
+    /** Shown above the estimate, e.g. a warning. */
+    note?: React.ReactNode;
 }) {
     const [kind, setKind] = useState<ScopeKind>(counts.untranslated ? "untranslated" : counts.failed ? "failed" : "range");
     const [from, setFrom] = useState(String(counts.minIndex || 1));
@@ -202,7 +207,7 @@ function StartDialog({
     }, [open, novelId, scopeKey]);
 
     const options: { kind: ScopeKind; title: string; text: string; disabled?: boolean }[] = [
-        { kind: "untranslated", title: "Everything not translated yet", text: `${formatNumber(counts.untranslated)} chapters, in order`, disabled: !counts.untranslated },
+        { kind: "untranslated", title: "Everything not translated yet", text: `${formatNumber(counts.untranslated)} chapters`, disabled: !counts.untranslated },
         { kind: "failed", title: "Failed chapters", text: `${formatNumber(counts.failed)} chapters`, disabled: !counts.failed },
         { kind: "range", title: "A range of chapters", text: "From one chapter number to another" },
     ];
@@ -212,7 +217,7 @@ function StartDialog({
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Translate chapters</DialogTitle>
-                    <DialogDescription>Chapters are translated strictly in order, so terms found in one chapter are known in the next.</DialogDescription>
+                    <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-2">
                     {options.map((o) => (
@@ -254,6 +259,7 @@ function StartDialog({
                         </label>
                     </div>
                 )}
+                {note}
                 {est && (
                     <div className="flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm">
                         <Coins className="mt-0.5 size-4 shrink-0 text-brand" />

@@ -50,6 +50,13 @@
       "when": 1793278221076,
       "tag": "0006_telegram_messages",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793356708338,
+      "tag": "0007_batch_pipeline",
+      "breakpoints": true
     }
   ]
 }

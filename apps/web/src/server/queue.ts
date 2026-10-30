@@ -26,6 +26,14 @@ export interface DecidedJob {
     decidedAt: string;
 }
 
+/** Checks one Message Batch at the provider; re-queued with a delay until the batch ends. */
+export const BATCH_POLL_QUEUE = "batch-poll";
+const BATCH_POLL_SECONDS = 60;
+
+export interface BatchPollJob {
+    batchJobId: number;
+}
+
 const globalForBoss = globalThis as unknown as { boss?: Promise<PgBoss> };
 
 /**
@@ -59,6 +67,8 @@ export function getBoss(role: "web" | "worker" = "web"): Promise<PgBoss> {
         // "stately": while one sync of a novel waits, more requests for it are dropped (a debounce)
         await create(SYNC_NOVEL_QUEUE, { policy: "stately", expireInSeconds: 3600, retryLimit: 3, retryDelay: 120, retryBackoff: true });
         await create(SYNC_ALL_QUEUE, { policy: "stately", expireInSeconds: 6 * 3600, retryLimit: 1 });
+        // "stately" + singletonKey = batch: one waiting poll per batch however often it is requested
+        await create(BATCH_POLL_QUEUE, { policy: "stately", expireInSeconds: 3600, retryLimit: 5, retryDelay: 60, retryBackoff: true });
         await create(DECIDED_QUEUE, { expireInSeconds: 600, retryLimit: 2, retryDelay: 10, deleteAfterSeconds: 24 * 3600 });
         return boss;
     })();
@@ -68,6 +78,11 @@ export function getBoss(role: "web" | "worker" = "web"): Promise<PgBoss> {
 export async function enqueueNovel(novelId: number, role: "web" | "worker" = "web", delaySeconds = 0): Promise<void> {
     const boss = await getBoss(role);
     await boss.send(TRANSLATE_QUEUE, { novelId } satisfies TranslateJob, { singletonKey: String(novelId), ...(delaySeconds ? { startAfter: delaySeconds } : {}) });
+}
+
+export async function enqueueBatchPoll(batchJobId: number, role: "web" | "worker" = "web", delaySeconds = BATCH_POLL_SECONDS): Promise<void> {
+    const boss = await getBoss(role);
+    await boss.send(BATCH_POLL_QUEUE, { batchJobId } satisfies BatchPollJob, { singletonKey: String(batchJobId), ...(delaySeconds ? { startAfter: delaySeconds } : {}) });
 }
 
 /** Asks for a backup upload of the novel soon, if a bucket is set up. Never throws: a backup must not break an edit. */

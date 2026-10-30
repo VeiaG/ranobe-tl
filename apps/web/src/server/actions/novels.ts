@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/db";
 import { TERM_TYPES } from "@ranobe-tl/core";
-import { DECISION_MODES, novel } from "@/db/schema";
+import { DECISION_MODES, PIPELINES, novel, providerKey } from "@/db/schema";
 import { NovelSettingsSchema } from "@/server/novel-config";
 import { logEvent } from "@/server/activity";
 import { describeMerge, forSequel, glossaryOfNovel, mergeGlossary, novelTitle } from "@/server/glossary-seed";
@@ -37,17 +37,26 @@ const NovelBaseSchema = z.object({
 
 export type NovelInput = z.input<typeof NovelBaseSchema>;
 
+/** Batch translation uses Anthropic's Message Batches: the key must be an Anthropic one. */
+async function checkBatchKey(keyId: number | null) {
+    if (!keyId) return;
+    const [key] = await db.select({ provider: providerKey.provider }).from(providerKey).where(eq(providerKey.id, keyId));
+    if (key && key.provider !== "anthropic") throw new Error("Batch translation works with Anthropic keys only: choose an Anthropic key or the chapter-by-chapter mode");
+}
+
 /**
  * Creates a novel; `glossaryFrom` starts its glossary as a copy of another novel's (an earlier part).
  * Returns the id: the client uploads a glossary file, if one was chosen, before opening the novel.
  */
-export async function createNovel(input: NovelInput & { glossaryFrom?: number | null }) {
+export async function createNovel(input: NovelInput & { glossaryFrom?: number | null; pipeline?: string }) {
     return action(async () => {
         const user = await requireUser();
         const data = NovelBaseSchema.parse(input);
+        const pipeline = z.enum(PIPELINES).default("classic").parse(input.pipeline);
+        if (pipeline === "batch") await checkBatchKey(data.providerKeyId);
         const [row] = await db
             .insert(novel)
-            .values({ ...data, createdBy: user.id })
+            .values({ ...data, pipeline, createdBy: user.id })
             .returning({ id: novel.id });
         if (input.glossaryFrom) {
             const from = await novelTitle(db, input.glossaryFrom);
@@ -66,6 +75,8 @@ export async function updateNovel(id: number, input: NovelInput & { settings?: u
         await requireUser();
         const data = NovelBaseSchema.parse(input);
         const settings = input.settings === undefined ? undefined : NovelSettingsSchema.parse(input.settings);
+        const [n] = await db.select({ pipeline: novel.pipeline }).from(novel).where(eq(novel.id, id));
+        if (n?.pipeline === "batch") await checkBatchKey(data.providerKeyId);
         await db
             .update(novel)
             .set({ ...data, ...(settings ? { settings } : {}) })

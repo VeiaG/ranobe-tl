@@ -8,6 +8,8 @@ type ProviderKey = typeof providerKey.$inferSelect;
 /** The part of TranslationConfig stored in novel.settings (the rest has its own columns). */
 export const NovelSettingsSchema = z.object({
     effort: z.enum(EFFORTS).optional(),
+    /** Batch pipeline: reasoning effort of the term extraction; the translation's effort if unset. */
+    extractEffort: z.enum(EFFORTS).optional(),
     temperature: z.number().min(0).max(2).optional(),
     maxOutputTokens: z.number().int().min(1000).optional(),
     chunkSize: z.number().int().min(1000).optional(),
