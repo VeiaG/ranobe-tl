@@ -129,6 +129,66 @@ export async function failInterrupted(db: DB, batchJobId: number, notifier: Batc
     await failJob(db, n, job, notifier, "the worker stopped while applying the batch results; send the remaining chapters again");
 }
 
+/**
+ * Validates a reply to one chunk and keeps it in the state when it passes; otherwise the reason goes
+ * to the next attempt. The same Latin share twice in a row is accepted (names, game terms in the text).
+ */
+export async function checkChunk(
+    db: DB,
+    novelId: number,
+    index: number,
+    state: BatchChapterState,
+    c: number,
+    attempt: number,
+    text: string,
+    stop: string | undefined,
+    config: TranslationConfig
+): Promise<boolean> {
+    const parsed = parseOutput(text);
+    const v = validateTranslation(state.sources[c], parsed.translation, config, [...parsed.problems, ...(stop ? [stop] : [])]);
+    const latinAccepted = !v.ok && v.latinOnly && state.latin[c] !== null && latinStable(state.latin[c]!, v.latinPercent);
+    if (v.ok || latinAccepted) {
+        state.parts[c] = parsed.translation;
+        state.feedback[c] = null;
+        if (c === 0) state.title = parsed.title;
+        if (latinAccepted) await logEvent(db, novelId, "info", `chunk ${c + 1}, attempt ${attempt}: accepted, the Latin share is stable across attempts`, index);
+        return true;
+    }
+    state.feedback[c] = v.problems.join("; ");
+    state.latin[c] = v.latinOnly ? v.latinPercent : null;
+    await logEvent(db, novelId, "warning", `chunk ${c + 1}, attempt ${attempt}: ${state.feedback[c]}`, index);
+    return false;
+}
+
+/** Saves a chapter whose chunks are all translated; the text it replaces goes to the history. */
+export async function completeChapter(
+    db: DB,
+    ch: typeof chapter.$inferSelect,
+    state: BatchChapterState,
+    model: string,
+    extra: Partial<Record<"inputTokens" | "cachedTokens" | "outputTokens", unknown>> = {}
+): Promise<void> {
+    const parts = state.parts as string[];
+    await keepVersion(db, ch, "translation");
+    await db
+        .update(chapter)
+        .set({
+            status: "done",
+            title: state.title?.trim() || state.sources[0].split("\n")[0].trim(),
+            content: parts.join("\n\n"),
+            attempts: state.attempts.reduce((a, b) => a + b, 0),
+            ratio: parts.reduce((a, p) => a + p.length, 0) / state.sources.reduce((a, s) => a + s.length, 0),
+            error: "",
+            model,
+            // the time a batch waits says nothing about a chapter (the overview's ETA is for chapter by chapter)
+            duration: null,
+            translatedAt: new Date(),
+            batchState: null,
+            ...(extra as object),
+        })
+        .where(and(eq(chapter.id, ch.id), eq(chapter.status, "translating")));
+}
+
 /** Marks the batch failed and releases its chapters still waiting for it, with the reason. */
 async function failJob(db: DB, n: Novel, job: Job, notifier: BatchNotifier, reason: string): Promise<void> {
     await db.update(batchJob).set({ status: "failed", error: reason, endedAt: new Date() }).where(eq(batchJob.id, job.id));
@@ -141,17 +201,27 @@ async function failJob(db: DB, n: Novel, job: Job, notifier: BatchNotifier, reas
     await finishIfIdle(db, n, notifier, reason);
 }
 
-/** After a batch: with no other batch open the novel is idle again (or in error, with a reason). */
-async function finishIfIdle(db: DB, n: Novel, notifier: BatchNotifier, error?: string): Promise<void> {
+/**
+ * After a batch or a chapter translated directly: with no batch open and no chapter in flight
+ * the novel is idle again (or in error, with a reason).
+ */
+export async function finishIfIdle(db: DB, n: Novel, notifier: BatchNotifier, error?: string): Promise<void> {
+    // logged now, even if the novel keeps running for other chapters
+    if (error) await logEvent(db, n.id, "error", error);
     const open = await db
         .select({ id: batchJob.id })
         .from(batchJob)
         .where(and(eq(batchJob.novelId, n.id), inArray(batchJob.status, ["in_progress", "canceling", "applying"])))
         .limit(1);
     if (open.length) return;
+    const inFlight = await db
+        .select({ id: chapter.id })
+        .from(chapter)
+        .where(and(eq(chapter.novelId, n.id), eq(chapter.status, "translating")))
+        .limit(1);
+    if (inFlight.length) return;
     if (error) {
         await db.update(novel).set({ status: "error", statusMessage: error }).where(eq(novel.id, n.id));
-        await logEvent(db, n.id, "error", error);
         await notifier.runHalted(n, error);
         return;
     }
@@ -320,21 +390,8 @@ async function applyTranslation(
                 continue;
             }
             state.attempts[c] = Math.max(state.attempts[c], attempt);
-            const parsed = parseOutput(messageText(message));
-            const stop = stopProblem(message);
-            const v = validateTranslation(state.sources[c], parsed.translation, config, [...parsed.problems, ...(stop ? [stop] : [])]);
-            const latinAccepted = !v.ok && v.latinOnly && state.latin[c] !== null && latinStable(state.latin[c]!, v.latinPercent);
-            await recordUsage(db, n, job, usage, v.ok || latinAccepted, { chapter: ch.index, chunk: c, attempt });
-            if (v.ok || latinAccepted) {
-                state.parts[c] = parsed.translation;
-                state.feedback[c] = null;
-                if (c === 0) state.title = parsed.title;
-                if (latinAccepted) await logEvent(db, n.id, "info", `chunk ${c + 1}, attempt ${attempt}: accepted, the Latin share is stable across attempts`, ch.index);
-            } else {
-                state.feedback[c] = v.problems.join("; ");
-                state.latin[c] = v.latinOnly ? v.latinPercent : null;
-                await logEvent(db, n.id, "warning", `chunk ${c + 1}, attempt ${attempt}: ${state.feedback[c]}`, ch.index);
-            }
+            const accepted = await checkChunk(db, n.id, ch.index, state, c, attempt, messageText(message), stopProblem(message), config);
+            await recordUsage(db, n, job, usage, accepted, { chapter: ch.index, chunk: c, attempt });
         }
 
         const addTokens = {
@@ -348,26 +405,7 @@ async function applyTranslation(
         }
         const attempts = state.attempts.reduce((a, b) => a + b, 0);
         if (state.parts.every((p) => p !== null)) {
-            const sourceLength = state.sources.reduce((a, s) => a + s.length, 0);
-            const parts = state.parts as string[];
-            await keepVersion(db, ch, "translation");
-            await db
-                .update(chapter)
-                .set({
-                    status: "done",
-                    title: state.title?.trim() || state.sources[0].split("\n")[0].trim(),
-                    content: parts.join("\n\n"),
-                    attempts,
-                    ratio: parts.reduce((a, p) => a + p.length, 0) / sourceLength,
-                    error: "",
-                    model,
-                    // the time a batch waits says nothing about a chapter (the overview's ETA is for chapter by chapter)
-                    duration: null,
-                    translatedAt: new Date(),
-                    batchState: null,
-                    ...addTokens,
-                })
-                .where(eq(chapter.id, ch.id));
+            await completeChapter(db, ch, state, model, addTokens);
             done++;
             continue;
         }

@@ -21,7 +21,7 @@ import { logEvent } from "@/server/activity";
 import { budgetStop } from "@/server/budget";
 import { PgGlossaryStore } from "@/server/glossary-store";
 import { novelConfig, novelSettings } from "@/server/novel-config";
-import { enqueueBatchPoll } from "@/server/queue";
+import { enqueueBatchPoll, enqueueDirect } from "@/server/queue";
 
 type Novel = typeof novel.$inferSelect;
 type Chapter = typeof chapter.$inferSelect;
@@ -166,10 +166,15 @@ export function translateRequest(config: TranslationConfig, model: string, gloss
  * Sends chapters to translation with the glossary as it is now: every chunk of every chapter is one request.
  * Chapters with an unusable source are skipped right away. Returns how many chapters went out.
  */
-export async function submitTranslation(db: DB, novelId: number, where: SQL | undefined): Promise<{ chapters: number; skipped: number }> {
+export async function submitTranslation(
+    db: DB,
+    novelId: number,
+    where: SQL | undefined,
+    opts: { direct?: boolean } = {}
+): Promise<{ chapters: number; skipped: number }> {
     const [n] = await db.select().from(novel).where(eq(novel.id, novelId));
     if (!n) throw new Error("Novel not found");
-    const { config, model } = await batchSetup(db, n);
+    const { config, model, key } = await batchSetup(db, n);
     // a chapter already in a batch is not sent twice
     const rows = await db
         .select()
@@ -200,13 +205,27 @@ export async function submitTranslation(db: DB, novelId: number, where: SQL | un
     }
 
     const ids = [...states.keys()];
-    await createBatch(db, n, "translate", requests, ids);
+    if (opts.direct) {
+        const overBudget = await budgetStop(db, n, key);
+        if (overBudget) throw new Error(overBudget);
+    } else {
+        await createBatch(db, n, "translate", requests, ids);
+    }
     for (const [id, state] of states) {
         await db
             .update(chapter)
             .set({ status: "translating", batchState: state, error: "", draft: null, inputTokens: 0, cachedTokens: 0, outputTokens: 0, attempts: 0 })
             .where(eq(chapter.id, id));
     }
-    await logEvent(db, novelId, "info", `${ids.length} chapters sent to translation (batch of ${requests.length} requests)${skipped ? `, ${skipped} skipped` : ""}`);
+    if (opts.direct) {
+        await db
+            .update(novel)
+            .set({ status: "running", statusMessage: `Translating ${ids.length} chapters right away`, stopRequested: false, failStreak: 0 })
+            .where(eq(novel.id, n.id));
+        for (const id of ids) await enqueueDirect(id);
+        await logEvent(db, novelId, "info", `${ids.length} chapters sent to translation right away, without a batch${skipped ? `, ${skipped} skipped` : ""}`);
+    } else {
+        await logEvent(db, novelId, "info", `${ids.length} chapters sent to translation (batch of ${requests.length} requests)${skipped ? `, ${skipped} skipped` : ""}`);
+    }
     return { chapters: ids.length, skipped };
 }

@@ -51,6 +51,23 @@ function sameGram(words: string[], a: number, b: number, n: number): boolean {
 
 /** Short chunks are not compared by paragraphs: one merged line would already look like a big loss. */
 const MIN_PARAGRAPHS_TO_COMPARE = 20;
+/** A paragraph that may go missing on top of the share: a watermark line, a dialogue split over two lines. */
+const PARAGRAPH_SLACK = 1;
+
+/**
+ * How often the most repeated line of the source occurs ("[System Locked: …]" five times): a translation
+ * repeating that line as often is faithful, not a loop. Lines are compared by their first words, so a
+ * watermark glued to the end of one copy does not make it another line.
+ */
+export function sourceLineRepeats(source: string): number {
+    const counts = new Map<string, number>();
+    for (const line of source.split("\n")) {
+        const key = (line.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).join(" ").slice(0, 40);
+        if (key.length < 8) continue;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return Math.max(1, ...counts.values());
+}
 
 export function countParagraphs(text: string): number {
     return text.split(/\n\s*\n+/).filter((p) => p.trim()).length;
@@ -82,7 +99,8 @@ export function validateTranslation(source: string, translation: string, config:
         problems.push(`too much untranslated ${config.sourceLanguage} text (${latin.toFixed(1)}% Latin letters)`);
     }
     const repeat = longestRepeat(translation);
-    if (repeat.count >= 3 && repeat.span >= v.maxRepeatSpan) {
+    // the source repeating a line is not the model looping; a loop runs well past what the source has
+    if (repeat.count >= 3 && repeat.span >= v.maxRepeatSpan && repeat.count > sourceLineRepeats(source) + 1) {
         problems.push(`the text degenerates into a loop ("${repeat.gram.slice(0, 40)}" repeated ${repeat.count} times)`);
     }
     for (const [re, msg] of LEAK_PATTERNS) {
@@ -94,7 +112,7 @@ export function validateTranslation(source: string, translation: string, config:
     if (
         translation.trim() &&
         sourceParagraphs >= MIN_PARAGRAPHS_TO_COMPARE &&
-        translatedParagraphs < sourceParagraphs * (1 - v.maxParagraphLoss)
+        translatedParagraphs < sourceParagraphs * (1 - v.maxParagraphLoss) - PARAGRAPH_SLACK
     ) {
         problems.push(
             `${translatedParagraphs} paragraphs instead of ${sourceParagraphs}: some passages were merged or summarized; translate every paragraph of the source as a separate paragraph`

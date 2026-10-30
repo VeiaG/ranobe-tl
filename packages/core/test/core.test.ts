@@ -217,3 +217,19 @@ test("ignored terms: a removed 'not a term' is never added again", async () => {
     assert.equal((await g.propose({ source: "Elder", target: "Старійшина", type: "rank" }, 2, src))[0].kind, "ignored");
     assert.equal(await store.findTerm("Elder"), undefined);
 });
+
+test("validation: a line the source repeats is no loop, a few merged paragraphs are no summary", () => {
+    const line = "[System Locked: Not enough Mana to unlock the System]";
+    const source = `Chapter 3\n\n${[line, line, line, `${line}𝒇𝑟𝐞𝐞w𝐞𝑏𝙣𝑜vℯl.co𝑚`, line].join("\n\n")}\n\nHe sighed.`;
+    const uk = "[Систему заблоковано: недостатньо мани для розблокування системи]";
+    const translation = `Розділ 3\n\n${Array(5).fill(uk).join("\n\n")}\n\nВін зітхнув.`;
+    const loose = { ...config, validation: { ...config.validation, minRatio: 0, maxRatio: 10 } } as Config;
+    assert.deepEqual(validateTranslation(source, translation, loose).problems, []);
+    // the model looping far past the source is still caught
+    const looped = `Розділ 3\n\n${Array(30).fill(uk).join(" ")}`;
+    assert.match(validateTranslation(source, looped, loose).problems.join(), /loop/);
+
+    const paras = (n: number, word: string) => Array.from({ length: n }, (_, i) => `${word} ${i} ${"слово ".repeat(8)}`).join("\n\n");
+    assert.deepEqual(validateTranslation(paras(27, "Source"), paras(24, "Абзац"), loose).problems, []);
+    assert.match(validateTranslation(paras(27, "Source"), paras(20, "Абзац"), loose).problems.join(), /paragraphs instead of 27/);
+});

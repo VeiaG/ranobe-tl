@@ -34,6 +34,13 @@ export interface BatchPollJob {
     batchJobId: number;
 }
 
+/** Translates one chapter of a batch novel right away, without a batch (full price, results in minutes). */
+export const DIRECT_QUEUE = "batch-direct";
+
+export interface DirectJob {
+    chapterId: number;
+}
+
 const globalForBoss = globalThis as unknown as { boss?: Promise<PgBoss> };
 
 /**
@@ -69,6 +76,7 @@ export function getBoss(role: "web" | "worker" = "web"): Promise<PgBoss> {
         await create(SYNC_ALL_QUEUE, { policy: "stately", expireInSeconds: 6 * 3600, retryLimit: 1 });
         // "stately" + singletonKey = batch: one waiting poll per batch however often it is requested
         await create(BATCH_POLL_QUEUE, { policy: "stately", expireInSeconds: 3600, retryLimit: 5, retryDelay: 60, retryBackoff: true });
+        await create(DIRECT_QUEUE, { expireInSeconds: 6 * 3600, heartbeatSeconds: 60, retryLimit: 2, retryDelay: 30 });
         await create(DECIDED_QUEUE, { expireInSeconds: 600, retryLimit: 2, retryDelay: 10, deleteAfterSeconds: 24 * 3600 });
         return boss;
     })();
@@ -83,6 +91,11 @@ export async function enqueueNovel(novelId: number, role: "web" | "worker" = "we
 export async function enqueueBatchPoll(batchJobId: number, role: "web" | "worker" = "web", delaySeconds = BATCH_POLL_SECONDS): Promise<void> {
     const boss = await getBoss(role);
     await boss.send(BATCH_POLL_QUEUE, { batchJobId } satisfies BatchPollJob, { singletonKey: String(batchJobId), ...(delaySeconds ? { startAfter: delaySeconds } : {}) });
+}
+
+export async function enqueueDirect(chapterId: number, role: "web" | "worker" = "web"): Promise<void> {
+    const boss = await getBoss(role);
+    await boss.send(DIRECT_QUEUE, { chapterId } satisfies DirectJob, { singletonKey: String(chapterId) });
 }
 
 /** Asks for a backup upload of the novel soon, if a bucket is set up. Never throws: a backup must not break an edit. */

@@ -115,6 +115,9 @@ export async function affectedChapters(novelId: number, termIds: number[]) {
     });
 }
 
+/** Batch novels: up to this many chapters are translated again right away rather than in a batch. */
+const DIRECT_UP_TO = 10;
+
 /** Queues chapters for another translation, e.g. after a term changed. */
 export async function retranslate(novelId: number, indexes: number[]) {
     return action(async () => {
@@ -124,9 +127,11 @@ export async function retranslate(novelId: number, indexes: number[]) {
         if (!n) throw new Error("Novel not found");
         if (!n.providerKeyId) throw new Error("Choose an API key in the novel settings first");
         if (n.pipeline === "batch") {
-            const res = await submitTranslation(db, novelId, inArray(chapter.index, indexes));
+            // a handful of chapters is not worth waiting hours for a batch
+            const direct = indexes.length <= DIRECT_UP_TO;
+            const res = await submitTranslation(db, novelId, inArray(chapter.index, indexes), { direct });
             refresh(novelId);
-            return { ok: true as const, message: `${res.chapters} chapters sent to translation (batch)` };
+            return { ok: true as const, message: `${res.chapters} chapters sent to translation${direct ? " right away" : " (batch)"}` };
         }
         await db
             .update(chapter)
