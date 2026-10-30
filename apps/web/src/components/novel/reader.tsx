@@ -19,6 +19,7 @@ import {
     Plus,
     ScrollText,
     Terminal,
+    ThumbsUp,
 } from "lucide-react";
 import { ChapterStatusLabel } from "@/components/status";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +30,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Textarea } from "@/components/ui/textarea";
 import type { ChapterStatus } from "@/db/schema";
 import { cn, formatTokens, timeAgo } from "@/lib/utils";
-import { saveTranslation } from "@/server/actions/chapters";
+import { acceptRejectedTranslation, saveTranslation } from "@/server/actions/chapters";
+import { startBatchTranslation } from "@/server/actions/batch";
 import { HistoryDialog, type VersionView } from "./history-dialog";
 import { startRun } from "@/server/actions/run";
 
@@ -66,6 +68,8 @@ interface ReaderChapter {
     tokens: number;
     duration: number | null;
     translatedAt: string | null;
+    /** A failed translation's rejected attempts, to take anyway. */
+    rejected: { parts: (string | null)[]; title?: string; problems: Record<number, string> } | null;
 }
 
 type Mode = "translation" | "parallel" | "source";
@@ -149,7 +153,10 @@ export function Reader({
     terms,
     exchanges,
     versions,
+    batch,
 }: {
+    /** A batch novel: "Translate again" goes right away, without a batch. */
+    batch?: boolean;
     novelId: number;
     novelTitle: string;
     chapter: ReaderChapter;
@@ -164,6 +171,7 @@ export function Reader({
     const [size, setSize] = useState(17);
     const [editing, setEditing] = useState(false);
     const [showLog, setShowLog] = useState(false);
+    const [showRejected, setShowRejected] = useState(false);
     const [pending, start] = useTransition();
     const highlight = useHighlighter(terms);
 
@@ -197,7 +205,8 @@ export function Reader({
 
     const retranslate = () =>
         start(async () => {
-            const res = await startRun(novelId, { kind: "chapters", indexes: [c.index] });
+            const scope = { kind: "chapters" as const, indexes: [c.index] };
+            const res = batch ? await startBatchTranslation(novelId, scope, true) : await startRun(novelId, scope);
             if (!res.ok) toast.error(res.error);
             else toast.success("Chapter queued");
             router.refresh();
@@ -302,6 +311,12 @@ export function Reader({
                         <div>
                             <div className="font-medium text-destructive">{c.status === "failed" ? "The translation failed" : "Skipped"}</div>
                             <div className="mt-0.5 text-muted-foreground">{c.error}</div>
+                            {c.status === "failed" && c.rejected && (
+                                <Button variant="outline" size="sm" className="mt-2.5" onClick={() => setShowRejected(true)}>
+                                    <ThumbsUp />
+                                    Look at what the model gave
+                                </Button>
+                            )}
                         </div>
                     </div>
                 )}
@@ -362,6 +377,7 @@ export function Reader({
                 )}
             </nav>
 
+            {c.rejected && <RejectedDialog open={showRejected} onOpenChange={setShowRejected} novelId={novelId} index={c.index} rejected={c.rejected} />}
             <EditDialog open={editing} onOpenChange={setEditing} novelId={novelId} chapter={c} />
             <Dialog open={showLog} onOpenChange={setShowLog}>
                 <DialogContent className="sm:max-w-4xl">
@@ -373,7 +389,7 @@ export function Reader({
                         {exchanges.map((e) => (
                             <details key={e.id} className="rounded-lg border">
                                 <summary className="cursor-pointer px-3 py-2 text-sm">
-                                    Part {e.chunk + 1}, attempt {e.attempt}
+                                    {e.chunk < 0 ? "Term extraction" : `Part ${e.chunk + 1}`}, attempt {e.attempt}
                                     <span className="ml-2 text-xs text-muted-foreground">{new Date(e.createdAt).toLocaleTimeString()}</span>
                                 </summary>
                                 <div className="grid gap-3 border-t p-3 md:grid-cols-2">
@@ -427,6 +443,75 @@ function EditDialog({ open, onOpenChange, novelId, chapter }: { open: boolean; o
                     >
                         {pending && <Loader2 className="animate-spin" />}
                         Save
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+/** A failed chapter's rejected translation, to read and take anyway: the checks are heuristics. */
+function RejectedDialog({
+    open,
+    onOpenChange,
+    novelId,
+    index,
+    rejected,
+}: {
+    open: boolean;
+    onOpenChange: (v: boolean) => void;
+    novelId: number;
+    index: number;
+    rejected: NonNullable<ReaderChapter["rejected"]>;
+}) {
+    const router = useRouter();
+    const [pending, start] = useTransition();
+    const missing = rejected.parts.filter((p) => p === null).length;
+    const take = () =>
+        start(async () => {
+            const res = await acceptRejectedTranslation(novelId, index);
+            if (!res.ok) return void toast.error(res.error);
+            toast.success(res.message ?? "Taken");
+            onOpenChange(false);
+            router.refresh();
+        });
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-3xl">
+                <DialogHeader>
+                    <DialogTitle>What the model gave</DialogTitle>
+                    <DialogDescription>
+                        The last attempt, rejected by the checks. If it reads fine, take it as it is
+                        {missing > 0 ? `; the ${missing === 1 ? "part" : `${missing} parts`} that never came back will be translated again` : ""}.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="scrollbar-thin grid max-h-[60vh] gap-4 overflow-y-auto pr-1">
+                    {rejected.title && <h2 className="font-serif text-xl font-semibold">{rejected.title}</h2>}
+                    {rejected.parts.map((p, i) => (
+                        <div key={i} className="grid gap-2">
+                            {rejected.problems[i] && (
+                                <div className="flex gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
+                                    <CircleAlert className="size-3.5 shrink-0 text-destructive" />
+                                    <span>
+                                        Part {i + 1}: {rejected.problems[i]}
+                                    </span>
+                                </div>
+                            )}
+                            {p === null ? (
+                                <p className="text-sm text-muted-foreground italic">Part {i + 1}: nothing came back, it will be translated again.</p>
+                            ) : (
+                                <div className="font-serif text-[15px] leading-relaxed whitespace-pre-wrap">{p}</div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+                <DialogFooter>
+                    <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                        Close
+                    </Button>
+                    <Button disabled={pending} onClick={take}>
+                        {pending ? <Loader2 className="animate-spin" /> : <ThumbsUp />}
+                        Use it anyway
                     </Button>
                 </DialogFooter>
             </DialogContent>

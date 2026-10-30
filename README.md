@@ -68,7 +68,7 @@ The folders are what matters; for a full copy of everything (accounts, activity 
 
 **Chapters**: upload `.txt` files (first line is the title, the number comes from the file name: `00012.txt`, `Chapter 12.txt`), a `.zip` of them, a JSON array (`[{ "index", "title", "content" }]`), or paste a long text and split it at "Chapter N" lines.
 
-**Translate** queues everything not translated yet, failed chapters, or a range (optionally translating done chapters again). **Pause** lets the chapter in flight finish; **Stop now** drops it. After 3 failed chapters in a row (a bad key, a dead endpoint) the run pauses itself.
+**Translate** queues everything not translated yet, failed chapters, or a range (optionally translating done chapters again). **Pause** lets the chapter in flight finish; **Stop now** drops it. After 3 failed chapters in a row (a bad key, a dead endpoint) the run pauses itself. The checks are heuristics: when a chapter fails, its page shows **what the model gave** (the last rejected attempt with the reasons) and **Use it anyway** takes it, translating only the parts that never came back. Every chapter keeps the prompts and raw answers of its last translation (and, in batch mode, of its term extraction), failed ones included: "N requests" on the chapter's page.
 
 **Publish to wuji.world** (export menu on the chapters page): sign in with the site's email and password, or paste the `payload-token` cookie for an account made with Google, pick one of the books the account can edit and a range; translated chapters are appended to the book in order. The sign-in is not saved. `WUJI_API_URL` points it at another copy of the site.
 

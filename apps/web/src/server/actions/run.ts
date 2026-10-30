@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { chapter, novel } from "@/db/schema";
 import { logEvent } from "@/server/activity";
 import { enqueueNovel } from "@/server/queue";
+import { DIRECT_UP_TO, submitTranslation } from "@/server/batch/submit";
 import { estimateRun } from "@/server/estimate";
 import { scopeWhere, type RunScope } from "@/server/scope";
 import { requireUser } from "@/server/session";
@@ -24,7 +25,13 @@ export async function startRun(novelId: number, scope: RunScope) {
         await requireUser();
         const [n] = await db.select().from(novel).where(eq(novel.id, novelId));
         if (!n) throw new Error("novel not found");
-        if (n.pipeline === "batch") throw new Error("This novel is translated in batches");
+        if (n.pipeline === "batch") {
+            // chapters picked in the table or the reader: a few go right away, more in a batch
+            const direct = scope.kind === "chapters" && scope.indexes.length <= DIRECT_UP_TO;
+            const res = await submitTranslation(db, novelId, scopeWhere(scope), { direct });
+            refresh(novelId);
+            return { ok: true as const, message: `${res.chapters} chapters sent to translation${direct ? " right away" : " (batch)"}` };
+        }
         if (!n.providerKeyId) throw new Error("Choose an API key in the novel settings first");
 
         const where = scopeWhere(scope);

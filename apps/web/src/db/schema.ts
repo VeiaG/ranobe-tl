@@ -1,4 +1,4 @@
-import type { AskNewPolicy, ChangeField, ChapterDraft } from "@ranobe-tl/core";
+import type { AskNewPolicy, ChangeField, ChapterDraft, RejectedTranslation } from "@ranobe-tl/core";
 import {
     bigserial,
     boolean,
@@ -226,6 +226,9 @@ export interface BatchChapterState {
     feedback: (string | null)[];
     /** Latin share of the last attempt when that was its only problem (accepted when it repeats). */
     latin: (number | null)[];
+    /** The last attempt of a chunk that came back but failed validation, to take anyway if the chapter fails. */
+    rejected?: (string | null)[];
+    rejectedTitle?: string;
 }
 
 export const chapter = pgTable(
@@ -262,6 +265,8 @@ export const chapter = pgTable(
         extractedAt: timestamp("extracted_at", { withTimezone: true }),
         /** Batch pipeline: the chunks of a translation in flight. */
         batchState: jsonb("batch_state").$type<BatchChapterState>(),
+        /** A failed translation with the attempts validation rejected, for "Use it anyway". */
+        rejected: jsonb("rejected").$type<RejectedTranslation>(),
         translatedAt: timestamp("translated_at", { withTimezone: true }),
         createdAt: createdAt(),
         updatedAt: updatedAt(),

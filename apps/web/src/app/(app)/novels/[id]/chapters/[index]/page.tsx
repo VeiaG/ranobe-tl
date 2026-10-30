@@ -62,7 +62,9 @@ export default async function ChapterPage({ params }: { params: Promise<{ id: st
                 tokens: c.inputTokens + c.outputTokens,
                 duration: c.duration,
                 translatedAt: c.translatedAt?.toISOString() ?? null,
+                rejected: c.rejected ? { parts: c.rejected.parts, title: c.rejected.title, problems: c.rejected.problems } : null,
             }}
+            batch={novel.pipeline === "batch"}
             prev={prev?.index ?? null}
             next={next?.index ?? null}
             terms={terms}

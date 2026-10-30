@@ -10,7 +10,7 @@ import { logEvent } from "@/server/activity";
 import { decide, type DecisionInput } from "@/server/decisions";
 import { PgGlossaryStore } from "@/server/glossary-store";
 import { enqueueNovel, requestSync } from "@/server/queue";
-import { submitTranslation } from "@/server/batch/submit";
+import { DIRECT_UP_TO, submitTranslation } from "@/server/batch/submit";
 import { requireUser } from "@/server/session";
 import { action } from "./util";
 
@@ -114,9 +114,6 @@ export async function affectedChapters(novelId: number, termIds: number[]) {
         return chapters.filter((c) => matcher.find(c.source).length > 0).map((c) => c.index);
     });
 }
-
-/** Batch novels: up to this many chapters are translated again right away rather than in a batch. */
-const DIRECT_UP_TO = 10;
 
 /** Queues chapters for another translation, e.g. after a term changed. */
 export async function retranslate(novelId: number, indexes: number[]) {

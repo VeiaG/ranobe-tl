@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { chapter, chapterVersion, novel } from "@/db/schema";
 import { requestSync } from "@/server/queue";
+import { acceptRejected } from "@/server/rejected";
 import { keepVersion } from "@/server/versions";
 import { requireUser } from "@/server/session";
 import { action } from "./util";
@@ -79,5 +80,15 @@ export async function restoreVersion(novelId: number, index: number, versionId: 
         revalidatePath(`/novels/${novelId}`, "layout");
         await requestSync(novelId);
         return { ok: true as const, message: "Version restored" };
+    });
+}
+
+/** Takes a failed chapter's rejected translation anyway (validation is a heuristic). */
+export async function acceptRejectedTranslation(novelId: number, index: number) {
+    return action(async () => {
+        await requireUser();
+        const res = await acceptRejected(db, novelId, index);
+        revalidatePath(`/novels/${novelId}`, "layout");
+        return { ok: true as const, data: res, message: res.done ? "Taken as it is" : "Taken; the rest of the chapter is being translated" };
     });
 }
