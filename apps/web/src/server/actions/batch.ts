@@ -48,10 +48,13 @@ export async function cancelBatches(novelId: number) {
         const open = await db
             .select()
             .from(batchJob)
-            .where(and(eq(batchJob.novelId, novelId), inArray(batchJob.status, ["in_progress", "canceling"])));
+            .where(and(eq(batchJob.novelId, novelId), inArray(batchJob.status, ["in_progress", "canceling", "applying"])));
         const jobs = open.filter((j) => j.status === "in_progress");
-        // a cancel already asked for: its results still come back and are applied, nothing to reset yet
-        if (open.length && !jobs.length) return { ok: true as const, message: "Already canceling; finished requests are kept" };
+        // a cancel already asked for, or results being applied right now: nothing to reset
+        if (open.length && !jobs.length) {
+            const applying = open.some((j) => j.status === "applying");
+            return { ok: true as const, message: applying ? "The results are being applied right now" : "Already canceling; finished requests are kept" };
+        }
         if (!jobs.length) {
             // nothing at the provider: a novel left "running" goes back to idle, chapters to what they were
             await db.update(novel).set({ status: "idle", statusMessage: "" }).where(eq(novel.id, novelId));

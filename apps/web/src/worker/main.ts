@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { runMigrations } from "@/db/migrate";
 import { batchJob, novel } from "@/db/schema";
-import { pollBatch } from "@/server/batch/ingest";
+import { failInterrupted, pollBatch } from "@/server/batch/ingest";
 import {
     BATCH_POLL_QUEUE,
     DECIDED_QUEUE,
@@ -138,6 +138,9 @@ async function main() {
     // open batches are polled again (a poll lost with the previous worker would leave them hanging)
     const batches = await db.select({ id: batchJob.id }).from(batchJob).where(inArray(batchJob.status, ["in_progress", "canceling"]));
     for (const b of batches) await enqueueBatchPoll(b.id, "worker", 5);
+    // results the previous worker was applying when it stopped: applied in part, so they fail instead of a second run
+    const interrupted = await db.select({ id: batchJob.id }).from(batchJob).where(eq(batchJob.status, "applying"));
+    for (const b of interrupted) await failInterrupted(db, b.id, notifier).catch((error) => console.error(`[batch] could not release batch ${b.id}:`, error));
 
     const { concurrency } = await instanceConfig(db);
     console.log(`[worker] ready: up to ${concurrency} novels in parallel (${SLOTS} slots here)${running.length ? `, resumed ${running.length}` : ""}`);

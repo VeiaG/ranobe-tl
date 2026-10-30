@@ -43,7 +43,8 @@ function latinStable(previous: number, current: number): boolean {
  */
 export async function pollBatch(db: DB, batchJobId: number, notifier: BatchNotifier): Promise<void> {
     const [job] = await db.select().from(batchJob).where(eq(batchJob.id, batchJobId));
-    if (!job || job.status === "ended" || job.status === "canceled" || job.status === "failed") return;
+    // "applying": another poll has the results already
+    if (!job || (job.status !== "in_progress" && job.status !== "canceling")) return;
     const [n] = await db.select().from(novel).where(eq(novel.id, job.novelId));
     if (!n) return;
 
@@ -113,6 +114,19 @@ export async function pollBatch(db: DB, batchJobId: number, notifier: BatchNotif
         }
     }
     await finishIfIdle(db, n, notifier);
+}
+
+/**
+ * A batch left "applying" by a worker that stopped mid-way (crash, kill): its results were applied in part,
+ * so it is not applied again; it fails like any batch and its waiting chapters are released.
+ * Called at worker start, when no poll of this worker can be applying.
+ */
+export async function failInterrupted(db: DB, batchJobId: number, notifier: BatchNotifier): Promise<void> {
+    const [job] = await db.select().from(batchJob).where(and(eq(batchJob.id, batchJobId), eq(batchJob.status, "applying")));
+    if (!job) return;
+    const [n] = await db.select().from(novel).where(eq(novel.id, job.novelId));
+    if (!n) return;
+    await failJob(db, n, job, notifier, "the worker stopped while applying the batch results; send the remaining chapters again");
 }
 
 /** Marks the batch failed and releases its chapters still waiting for it, with the reason. */

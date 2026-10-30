@@ -233,3 +233,27 @@ test("batch: translation with the glossary, a rejected chunk goes out again", { 
     const one = (900 * 0.1 + 100 * 0.01 + 400 * 0.5) / 1_000_000 / 2;
     assert.ok(Math.abs(usd - 7 * one) < 1e-9, `spent ${usd}`);
 });
+
+test("batch: results being applied are not applied twice; left over at start, they fail", { skip: !enabled }, async () => {
+    const { pollBatch, failInterrupted } = await import("@/server/batch/ingest");
+    const chapterId = chapterIds.get(3)!;
+    await db.update(schema.chapter).set({ status: "translating" }).where(eq(schema.chapter.id, chapterId));
+    const [job] = await db
+        .insert(schema.batchJob)
+        .values({ novelId, kind: "translate", externalId: "msgbatch_1", keyId, model: "claude-haiku-5-5", chapterIds: [chapterId], requests: 1, status: "applying" })
+        .returning();
+    const usage = async () => (await db.select().from(schema.usageRecord).where(eq(schema.usageRecord.novelId, novelId))).length;
+    const before = await usage();
+
+    await pollBatch(db, job.id, silent);
+    assert.equal(await usage(), before, "a poll of a batch being applied does nothing");
+    assert.equal((await db.select().from(schema.batchJob).where(eq(schema.batchJob.id, job.id)))[0].status, "applying");
+
+    await failInterrupted(db, job.id, silent);
+    assert.equal((await db.select().from(schema.batchJob).where(eq(schema.batchJob.id, job.id)))[0].status, "failed");
+    const [ch] = await db.select().from(schema.chapter).where(eq(schema.chapter.id, chapterId));
+    assert.equal(ch.status, "failed");
+    assert.match(ch.error, /worker stopped while applying/);
+    const [n] = await db.select().from(schema.novel).where(eq(schema.novel.id, novelId));
+    assert.equal(n.status, "error");
+});
