@@ -41,6 +41,17 @@ export interface Tokens {
     outputTokens: number;
 }
 
+/** Usage of Message Batches is recorded under "<model>:batch": half the price of the model. */
+export const BATCH_SUFFIX = ":batch";
+const BATCH_DISCOUNT = 0.5;
+
+/** The price of a recorded model name, batch requests included. */
+export function priceOf(prices: Record<string, Price>, model: string): Price | undefined {
+    if (!model.endsWith(BATCH_SUFFIX)) return prices[model];
+    const base = prices[model.slice(0, -BATCH_SUFFIX.length)];
+    return base && { input: base.input * BATCH_DISCOUNT, cachedInput: base.cachedInput * BATCH_DISCOUNT, output: base.output * BATCH_DISCOUNT };
+}
+
 /** Cost in USD, or null when the model has no price. */
 export function costOf(t: Tokens, price: Price | undefined): number | null {
     if (!price) return null;

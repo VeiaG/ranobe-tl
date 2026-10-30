@@ -14,6 +14,7 @@ export default async function NovelSettingsPage({ params }: { params: Promise<{ 
             <section className="rounded-xl border bg-card p-6 shadow-xs">
                 <NovelForm
                     novelId={id}
+                    pipeline={n.pipeline}
                     keys={keys}
                     initial={{
                         title: n.title,
@@ -32,6 +33,7 @@ export default async function NovelSettingsPage({ params }: { params: Promise<{ 
             <section className="rounded-xl border bg-card p-6 shadow-xs">
                 <SettingsForm
                     novelId={id}
+                    batch={n.pipeline === "batch"}
                     settings={novelSettings(n)}
                     defaults={{
                         maxOutputTokens: defaults.maxOutputTokens,

@@ -4,14 +4,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-export function NovelTabs({ novelId, counts }: { novelId: number; counts: { chapters: number; terms: number; pending: number } }) {
+export function NovelTabs({ novelId, batch, counts }: { novelId: number; batch?: boolean; counts: { chapters: number; terms: number; pending: number; candidates?: number } }) {
     const pathname = usePathname();
     const base = `/novels/${novelId}`;
     const tabs = [
         { href: base, label: "Overview", exact: true },
         { href: `${base}/chapters`, label: "Chapters", count: counts.chapters },
         { href: `${base}/glossary`, label: "Glossary", count: counts.terms },
-        { href: `${base}/decisions`, label: "Decisions", count: counts.pending, highlight: counts.pending > 0 },
+        // a batch novel merges extracted terms in Candidates; the model proposes nothing while translating
+        batch
+            ? { href: `${base}/candidates`, label: "Candidates", count: counts.candidates ?? 0, highlight: (counts.candidates ?? 0) > 0 }
+            : { href: `${base}/decisions`, label: "Decisions", count: counts.pending, highlight: counts.pending > 0 },
         { href: `${base}/replace`, label: "Replace" },
         { href: `${base}/settings`, label: "Settings" },
     ];

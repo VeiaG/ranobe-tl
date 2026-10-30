@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Hourglass, ListChecks, Loader2 } from "lucide-react";
+import { Hourglass, Layers, ListChecks, ListOrdered, Loader2 } from "lucide-react";
 import { PROVIDER_DEFAULTS, TERM_TYPES, type AskNewPolicy, type Provider, type TermType } from "@ranobe-tl/core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { DecisionMode } from "@/db/schema";
+import type { DecisionMode, Pipeline } from "@/db/schema";
 import { cn } from "@/lib/utils";
 import { listModels, type ModelOption } from "@/server/actions/keys";
 import { createNovel, updateNovel, type NovelInput } from "@/server/actions/novels";
@@ -174,6 +174,47 @@ export function DecisionModePicker({ value, onChange }: { value: DecisionMode; o
     );
 }
 
+/** Chapter by chapter, or terms first and then everything at once (Anthropic Message Batches). Fixed once the novel exists. */
+export function PipelinePicker({ value, onChange, disabled }: { value: Pipeline; onChange: (v: Pipeline) => void; disabled?: boolean }) {
+    const options: { value: Pipeline; title: string; text: string; icon: React.ComponentType<{ className?: string }> }[] = [
+        {
+            value: "classic",
+            title: "Chapter by chapter",
+            text: "Chapters are translated in order; the model reports new terms as it goes and proposes changes for you to decide. Any provider.",
+            icon: ListOrdered,
+        },
+        {
+            value: "batch",
+            title: "Terms first, then batches",
+            text: "Terms are extracted from all chapters at once, you settle the disagreements, then every chapter is translated with the finished glossary. Half the price, results within hours. Anthropic keys only.",
+            icon: Layers,
+        },
+    ];
+    return (
+        <div className="grid gap-3 sm:grid-cols-2">
+            {options.map((o) => (
+                <button
+                    type="button"
+                    key={o.value}
+                    disabled={disabled && value !== o.value}
+                    onClick={() => !disabled && onChange(o.value)}
+                    className={cn(
+                        "flex gap-3 rounded-lg border p-3.5 text-left transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-45",
+                        disabled && "cursor-default hover:bg-transparent",
+                        value === o.value && "border-brand/60 bg-brand/5 ring-1 ring-brand/30"
+                    )}
+                >
+                    <o.icon className={cn("mt-0.5 size-4 shrink-0 text-muted-foreground", value === o.value && "text-brand")} />
+                    <span>
+                        <span className="block text-sm font-medium">{o.title}</span>
+                        <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">{o.text}</span>
+                    </span>
+                </button>
+            ))}
+        </div>
+    );
+}
+
 /** Opt-in review of new terms: which types, and up to which chapter. */
 export function AskNewPicker({ value, onChange }: { value: AskNewPolicy | null; onChange: (v: AskNewPolicy | null) => void }) {
     const on = value !== null;
@@ -296,10 +337,13 @@ export function NovelForm({
     initial,
     novelId,
     novels = [],
+    pipeline: savedPipeline,
 }: {
     keys: KeyOption[];
     initial?: Partial<NovelInput>;
     novelId?: number;
+    /** The pipeline of an existing novel (it cannot change). */
+    pipeline?: Pipeline;
     /** Other novels whose glossary a new one can start from. */
     novels?: { id: number; title: string; terms: number }[];
 }) {
@@ -309,7 +353,17 @@ export function NovelForm({
     const [keyId, setKeyId] = useState<string>(initial?.providerKeyId ? String(initial.providerKeyId) : keys[0] ? String(keys[0].id) : "");
     const [mode, setMode] = useState<DecisionMode>((initial?.decisionMode as DecisionMode) ?? "queue");
     const [askNew, setAskNew] = useState<AskNewPolicy | null>((initial?.askNew as AskNewPolicy | null | undefined) ?? null);
-    const key = keys.find((k) => String(k.id) === keyId);
+    const [pipeline, setPipeline] = useState<Pipeline>(savedPipeline ?? "classic");
+    // batches are Anthropic's: other keys are not offered
+    const usableKeys = pipeline === "batch" ? keys.filter((k) => k.provider === "anthropic") : keys;
+    const choosePipeline = (p: Pipeline) => {
+        setPipeline(p);
+        if (p === "batch" && !keys.some((k) => String(k.id) === keyId && k.provider === "anthropic")) {
+            const first = keys.find((k) => k.provider === "anthropic");
+            setKeyId(first ? String(first.id) : "");
+        }
+    };
+    const key = usableKeys.find((k) => String(k.id) === keyId);
     const defaultModel = key ? PROVIDER_DEFAULTS[key.provider as Provider]?.model : undefined;
 
     function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -337,7 +391,7 @@ export function NovelForm({
         }
         if (glossaryStart.kind === "file" && !glossaryStart.file) return void toast.error("Choose the glossary file");
         start(async () => {
-            const res = await createNovel({ ...input, glossaryFrom: glossaryStart.kind === "novel" && glossaryStart.id ? Number(glossaryStart.id) : null });
+            const res = await createNovel({ ...input, pipeline, glossaryFrom: glossaryStart.kind === "novel" && glossaryStart.id ? Number(glossaryStart.id) : null });
             if (!res.ok) return void toast.error(res.error);
             const id = res.data!;
             if (glossaryStart.kind === "file" && glossaryStart.file) {
@@ -378,14 +432,21 @@ export function NovelForm({
                 </div>
             </FormSection>
 
+            <FormSection
+                title="How to translate"
+                description={novelId ? "Chosen when the novel was created." : "Chapter by chapter works with any provider; batches need an Anthropic key and cost half."}
+            >
+                <PipelinePicker value={pipeline} onChange={choosePipeline} disabled={!!novelId} />
+            </FormSection>
+
             <FormSection title="Model" description="Which key pays for this novel and which model translates it. Prices are per million input / output tokens.">
                 <div className="grid gap-5 sm:grid-cols-2">
                     <Field
                         label="API key"
                         hint={
-                            keys.length ? undefined : (
+                            usableKeys.length ? undefined : (
                                 <>
-                                    No keys yet:{" "}
+                                    {pipeline === "batch" ? "No Anthropic keys yet:" : "No keys yet:"}{" "}
                                     <Link href="/settings?tab=keys" className="text-brand hover:underline">
                                         add one in Settings
                                     </Link>
@@ -397,14 +458,14 @@ export function NovelForm({
                         <Select
                             value={keyId}
                             onValueChange={(v) => v && setKeyId(v)}
-                            disabled={!keys.length}
-                            items={Object.fromEntries(keys.map((k) => [String(k.id), `${k.name} · ${PROVIDER_DEFAULTS[k.provider as Provider]?.label ?? k.provider} ···${k.hint}`]))}
+                            disabled={!usableKeys.length}
+                            items={Object.fromEntries(usableKeys.map((k) => [String(k.id), `${k.name} · ${PROVIDER_DEFAULTS[k.provider as Provider]?.label ?? k.provider} ···${k.hint}`]))}
                         >
                             <SelectTrigger className="w-full">
                                 <SelectValue placeholder="Choose a key" />
                             </SelectTrigger>
                             <SelectContent>
-                                {keys.map((k) => (
+                                {usableKeys.map((k) => (
                                     <SelectItem key={k.id} value={String(k.id)}>
                                         {k.name}
                                         <span className="text-muted-foreground">
@@ -430,13 +491,15 @@ export function NovelForm({
                 </FormSection>
             )}
 
-            <FormSection
-                title="Glossary decisions"
-                description="The model may propose changing a translation or a gender that is already in the glossary. How should the run treat that (and new terms, if you review them)?"
-            >
-                <DecisionModePicker value={mode} onChange={setMode} />
-                <AskNewPicker value={askNew} onChange={setAskNew} />
-            </FormSection>
+            {pipeline === "classic" && (
+                <FormSection
+                    title="Glossary decisions"
+                    description="The model may propose changing a translation or a gender that is already in the glossary. How should the run treat that (and new terms, if you review them)?"
+                >
+                    <DecisionModePicker value={mode} onChange={setMode} />
+                    <AskNewPicker value={askNew} onChange={setAskNew} />
+                </FormSection>
+            )}
 
             <div className="flex justify-end gap-2 border-t pt-6">
                 {!novelId && (

@@ -160,6 +160,15 @@ export type NovelStatus = (typeof NOVEL_STATUSES)[number];
 export const DECISION_MODES = ["queue", "pause"] as const;
 export type DecisionMode = (typeof DECISION_MODES)[number];
 
+/**
+ * How a novel is translated:
+ * - classic: chapter by chapter in order, the model reports new terms as it goes
+ * - batch: terms are extracted from all chapters first (Anthropic Message Batches), merged by hand,
+ *   then the chapters are translated in parallel with the finished glossary
+ */
+export const PIPELINES = ["classic", "batch"] as const;
+export type Pipeline = (typeof PIPELINES)[number];
+
 export const novel = pgTable("novel", {
     id: serial("id").primaryKey(),
     title: text("title").notNull(),
@@ -169,6 +178,7 @@ export const novel = pgTable("novel", {
     targetLanguage: text("target_language").notNull().default("Ukrainian"),
     providerKeyId: integer("provider_key_id").references(() => providerKey.id, { onDelete: "set null" }),
     model: text("model").notNull().default(""),
+    pipeline: text("pipeline").$type<Pipeline>().notNull().default("classic"),
     /** The rest of TranslationConfig (effort, chunking, validation, instructions, ...). */
     settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
     decisionMode: text("decision_mode").$type<DecisionMode>().notNull().default("queue"),
@@ -205,6 +215,19 @@ export interface DraftTerm {
     gender: string | null;
 }
 
+/** A chapter translated by the batch pipeline: its chunks, filled in as their results arrive. */
+export interface BatchChapterState {
+    sources: string[];
+    parts: (string | null)[];
+    title?: string;
+    /** Requests made per chunk. */
+    attempts: number[];
+    /** Why the last attempt of a chunk was rejected, sent with the next one. */
+    feedback: (string | null)[];
+    /** Latin share of the last attempt when that was its only problem (accepted when it repeats). */
+    latin: (number | null)[];
+}
+
 export const chapter = pgTable(
     "chapter",
     {
@@ -235,6 +258,10 @@ export const chapter = pgTable(
          * as they were then: a resumed run keeps them when the decisions changed nothing.
          */
         draft: jsonb("draft").$type<ChapterDraft & { terms: DraftTerm[] }>(),
+        /** Batch pipeline: when the terms of this chapter were extracted. */
+        extractedAt: timestamp("extracted_at", { withTimezone: true }),
+        /** Batch pipeline: the chunks of a translation in flight. */
+        batchState: jsonb("batch_state").$type<BatchChapterState>(),
         translatedAt: timestamp("translated_at", { withTimezone: true }),
         createdAt: createdAt(),
         updatedAt: updatedAt(),
@@ -335,6 +362,88 @@ export const ignoredTerm = pgTable(
         createdAt: createdAt(),
     },
     (t) => [primaryKey({ columns: [t.novelId, t.sourceNorm] })]
+);
+
+// ---------- batch pipeline ----------
+
+/** Terms the extraction model reported, one row per chapter and term; merged into the glossary by rules or by hand. */
+export const CANDIDATE_STATUSES = ["pending", "accepted", "dismissed"] as const;
+export type CandidateStatus = (typeof CANDIDATE_STATUSES)[number];
+
+export const termCandidate = pgTable(
+    "term_candidate",
+    {
+        id: serial("id").primaryKey(),
+        novelId: integer("novel_id")
+            .notNull()
+            .references(() => novel.id, { onDelete: "cascade" }),
+        chapter: integer("chapter").notNull(),
+        source: text("source").notNull(),
+        /** looseKey(source): plural, possessive and hyphen variants are one term. */
+        groupKey: text("group_key").notNull(),
+        target: text("target").notNull(),
+        type: text("type").notNull().default("other"),
+        gender: text("gender"),
+        note: text("note").notNull().default(""),
+        evidence: text("evidence").notNull().default(""),
+        status: text("status").$type<CandidateStatus>().notNull().default("pending"),
+        createdAt: createdAt(),
+    },
+    (t) => [index("term_candidate_group").on(t.novelId, t.groupKey), index("term_candidate_status").on(t.novelId, t.status), index("term_candidate_chapter").on(t.novelId, t.chapter)]
+);
+
+/** What the model suggested for a conflicting term ("Ask the model"), kept until the term is merged. */
+export interface TermAdvice {
+    target: string;
+    type: string;
+    gender: string;
+    note: string;
+    reason: string;
+}
+
+export const termAdvice = pgTable(
+    "term_advice",
+    {
+        novelId: integer("novel_id")
+            .notNull()
+            .references(() => novel.id, { onDelete: "cascade" }),
+        groupKey: text("group_key").notNull(),
+        advice: jsonb("advice").$type<TermAdvice>().notNull(),
+        createdAt: createdAt(),
+    },
+    (t) => [primaryKey({ columns: [t.novelId, t.groupKey] })]
+);
+
+export const BATCH_KINDS = ["extract", "translate"] as const;
+export type BatchKind = (typeof BATCH_KINDS)[number];
+/** "canceling": cancel was requested; the batch is still polled so the results that came back are kept. */
+export const BATCH_STATUSES = ["in_progress", "canceling", "ended", "canceled", "failed"] as const;
+export type BatchStatus = (typeof BATCH_STATUSES)[number];
+
+/** One Message Batch at the provider. Polled by the worker until it ends, then its results are applied. */
+export const batchJob = pgTable(
+    "batch_job",
+    {
+        id: serial("id").primaryKey(),
+        novelId: integer("novel_id")
+            .notNull()
+            .references(() => novel.id, { onDelete: "cascade" }),
+        kind: text("kind").$type<BatchKind>().notNull(),
+        /** The provider's batch id. */
+        externalId: text("external_id").notNull(),
+        keyId: integer("key_id").references(() => providerKey.id, { onDelete: "set null" }),
+        model: text("model").notNull(),
+        /** Chapter ids in this batch, to put them back when it is canceled. */
+        chapterIds: jsonb("chapter_ids").$type<number[]>().notNull().default([]),
+        requests: integer("requests").notNull(),
+        status: text("status").$type<BatchStatus>().notNull().default("in_progress"),
+        /** The provider's request counts at the last poll. */
+        counts: jsonb("counts").$type<Record<string, number>>(),
+        error: text("error").notNull().default(""),
+        endedAt: timestamp("ended_at", { withTimezone: true }),
+        createdAt: createdAt(),
+    },
+    (t) => [index("batch_job_novel").on(t.novelId, t.status)]
 );
 
 // ---------- activity ----------

@@ -24,6 +24,7 @@ export async function startRun(novelId: number, scope: RunScope) {
         await requireUser();
         const [n] = await db.select().from(novel).where(eq(novel.id, novelId));
         if (!n) throw new Error("novel not found");
+        if (n.pipeline === "batch") throw new Error("This novel is translated in batches");
         if (!n.providerKeyId) throw new Error("Choose an API key in the novel settings first");
 
         const where = scopeWhere(scope);
@@ -78,6 +79,8 @@ export async function stopNow(novelId: number) {
 export async function resumeRun(novelId: number) {
     return action(async () => {
         await requireUser();
+        const [n] = await db.select({ pipeline: novel.pipeline }).from(novel).where(eq(novel.id, novelId));
+        if (n?.pipeline === "batch") throw new Error("This novel is translated in batches");
         await db
             .update(novel)
             .set({ status: "running", statusMessage: "Resuming…", stopRequested: false, failStreak: 0 })

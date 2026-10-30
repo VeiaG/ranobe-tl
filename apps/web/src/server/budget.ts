@@ -1,7 +1,7 @@
 import { and, eq, gte, sql, type SQL } from "drizzle-orm";
 import type { DB } from "@/db";
 import { usageRecord } from "@/db/schema";
-import { costOf, formatUsd, getPrices } from "./pricing";
+import { costOf, priceOf, formatUsd, getPrices } from "./pricing";
 
 /** Spend in USD over matching records; models without a price count as 0 (and are reported). */
 export async function spent(db: DB, where: SQL | undefined): Promise<{ usd: number; unpriced: string[] }> {
@@ -19,7 +19,7 @@ export async function spent(db: DB, where: SQL | undefined): Promise<{ usd: numb
     let usd = 0;
     const unpriced: string[] = [];
     for (const r of rows) {
-        const c = costOf(r, prices[r.model]);
+        const c = costOf(r, priceOf(prices, r.model));
         if (c === null) unpriced.push(r.model);
         else usd += c;
     }

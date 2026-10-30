@@ -10,6 +10,7 @@ import { logEvent } from "@/server/activity";
 import { decide, type DecisionInput } from "@/server/decisions";
 import { PgGlossaryStore } from "@/server/glossary-store";
 import { enqueueNovel, requestSync } from "@/server/queue";
+import { submitTranslation } from "@/server/batch/submit";
 import { requireUser } from "@/server/session";
 import { action } from "./util";
 
@@ -122,6 +123,11 @@ export async function retranslate(novelId: number, indexes: number[]) {
         const [n] = await db.select().from(novel).where(eq(novel.id, novelId));
         if (!n) throw new Error("Novel not found");
         if (!n.providerKeyId) throw new Error("Choose an API key in the novel settings first");
+        if (n.pipeline === "batch") {
+            const res = await submitTranslation(db, novelId, inArray(chapter.index, indexes));
+            refresh(novelId);
+            return { ok: true as const, message: `${res.chapters} chapters sent to translation (batch)` };
+        }
         await db
             .update(chapter)
             .set({ status: "queued", draft: null })

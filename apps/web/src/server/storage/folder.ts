@@ -61,6 +61,7 @@ export async function novelJson(db: DB, n: Novel): Promise<string> {
             title: n.title,
             originalTitle: n.originalTitle,
             decisionMode: n.decisionMode,
+            pipeline: n.pipeline,
             askNew: n.askNew,
         },
     };

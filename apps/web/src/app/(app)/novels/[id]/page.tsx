@@ -65,6 +65,24 @@ export default async function NovelOverview({ params }: { params: Promise<{ id: 
                     </Link>
                 )}
 
+                {n.pipeline === "batch" && d.candidates > 0 && (
+                    <Link
+                        href={`/novels/${id}/candidates`}
+                        className="flex items-center gap-3 rounded-xl border border-warning/40 bg-warning/8 p-4 transition-colors hover:bg-warning/12"
+                    >
+                        <div className="flex size-9 items-center justify-center rounded-lg bg-warning/20 text-[color-mix(in_oklch,var(--warning)_70%,var(--foreground))]">
+                            <Inbox className="size-4" />
+                        </div>
+                        <div className="flex-1 text-sm">
+                            <div className="font-medium">
+                                {d.candidates} extracted {d.candidates === 1 ? "term needs" : "terms need"} a choice
+                            </div>
+                            <div className="text-muted-foreground">The chapters disagree on their translation or gender, or differ from the glossary.</div>
+                        </div>
+                        <ArrowRight className="size-4 text-muted-foreground" />
+                    </Link>
+                )}
+
                 <div className="rounded-xl border bg-card p-5 shadow-xs">
                     <div className="flex items-end justify-between gap-4">
                         <div>

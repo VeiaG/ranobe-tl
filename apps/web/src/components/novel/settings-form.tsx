@@ -34,9 +34,10 @@ const num = (s: FormDataEntryValue | null) => {
     return v === "" ? undefined : Number(v);
 };
 
-export function SettingsForm({ novelId, settings, defaults }: { novelId: number; settings: NovelSettings; defaults: Defaults }) {
+export function SettingsForm({ novelId, settings, defaults, batch }: { novelId: number; settings: NovelSettings; defaults: Defaults; batch?: boolean }) {
     const [pending, start] = useTransition();
     const [effort, setEffort] = useState<string>(settings.effort ?? "default");
+    const [extractEffort, setExtractEffort] = useState<string>(settings.extractEffort ?? "default");
     const [advanced, setAdvanced] = useState(false);
     const [patterns, setPatterns] = useState((settings.patternsToRemove ?? []).join("\n"));
     const v = settings.validation ?? {};
@@ -62,6 +63,7 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
         const patternList = lines(f.get("patternsToRemove"));
         const next: NovelSettings = {
             effort: effort === "default" ? undefined : (effort as NovelSettings["effort"]),
+            extractEffort: extractEffort === "default" ? undefined : (extractEffort as NovelSettings["extractEffort"]),
             temperature: num(f.get("temperature")),
             maxOutputTokens: num(f.get("maxOutputTokens")),
             chunkSize: num(f.get("chunkSize")),
@@ -91,24 +93,19 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
                 </Field>
                 <div className="grid gap-5 sm:grid-cols-3">
                     <Field label="Reasoning effort" hint="OpenAI / Anthropic. Translation rarely needs much.">
-                        <Select value={effort} onValueChange={(v) => v && setEffort(v)} items={{ default: "Model default", ...Object.fromEntries(EFFORTS.map((x) => [x, x])) }}>
-                            <SelectTrigger className="w-full">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="default">Model default</SelectItem>
-                                {EFFORTS.map((x) => (
-                                    <SelectItem key={x} value={x}>
-                                        {x}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <EffortSelect value={effort} onChange={setEffort} />
                     </Field>
-                    <Field label="Temperature" htmlFor="temperature" hint="Leave empty for current Claude models.">
-                        <Input id="temperature" name="temperature" type="number" step="any" min={0} max={2} defaultValue={settings.temperature} placeholder="default" />
-                    </Field>
-                    <Field label="Attempts per chunk" htmlFor="maxAttempts">
+                    {batch && (
+                        <Field label="Effort of term extraction" hint="Reading a chapter for its terms; the translation's effort if left at default.">
+                            <EffortSelect value={extractEffort} onChange={setExtractEffort} />
+                        </Field>
+                    )}
+                    {!batch && (
+                        <Field label="Temperature" htmlFor="temperature" hint="Leave empty for current Claude models.">
+                            <Input id="temperature" name="temperature" type="number" step="any" min={0} max={2} defaultValue={settings.temperature} placeholder="default" />
+                        </Field>
+                    )}
+                    <Field label="Attempts per chunk" htmlFor="maxAttempts" hint={batch ? "A rejected part goes out again in the next batch." : undefined}>
                         <Input id="maxAttempts" name="maxAttempts" type="number" min={1} max={10} defaultValue={settings.maxAttempts} placeholder={String(defaults.maxAttempts)} />
                     </Field>
                 </div>
@@ -127,7 +124,7 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
                         <Field label="Chunk size" htmlFor="chunkSize" hint="Characters per request. Long chunks make models summarize.">
                             <Input id="chunkSize" name="chunkSize" type="number" min={1000} defaultValue={settings.chunkSize} placeholder={String(defaults.chunkSize)} />
                         </Field>
-                        <Field label="Context" htmlFor="contextChars" hint="Characters of the previous part sent along.">
+                        <Field label="Context" htmlFor="contextChars" hint={batch ? "Characters of the source before a part, sent along." : "Characters of the previous part sent along."}>
                             <Input id="contextChars" name="contextChars" type="number" min={0} defaultValue={settings.contextChars} placeholder={String(defaults.contextChars)} />
                         </Field>
                         <Field label="Max output tokens" htmlFor="maxOutputTokens">
@@ -194,5 +191,23 @@ export function SettingsForm({ novelId, settings, defaults }: { novelId: number;
                 </Button>
             </div>
         </form>
+    );
+}
+
+function EffortSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+    return (
+        <Select value={value} onValueChange={(v) => v && onChange(v)} items={{ default: "Model default", ...Object.fromEntries(EFFORTS.map((x) => [x, x])) }}>
+            <SelectTrigger className="w-full">
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+                <SelectItem value="default">Model default</SelectItem>
+                {EFFORTS.map((x) => (
+                    <SelectItem key={x} value={x}>
+                        {x}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
     );
 }

@@ -1,8 +1,21 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { runMigrations } from "@/db/migrate";
-import { novel } from "@/db/schema";
-import { DECIDED_QUEUE, SYNC_ALL_QUEUE, SYNC_NOVEL_QUEUE, TRANSLATE_QUEUE, enqueueNovel, getBoss, type DecidedJob, type TranslateJob } from "@/server/queue";
+import { batchJob, novel } from "@/db/schema";
+import { pollBatch } from "@/server/batch/ingest";
+import {
+    BATCH_POLL_QUEUE,
+    DECIDED_QUEUE,
+    SYNC_ALL_QUEUE,
+    SYNC_NOVEL_QUEUE,
+    TRANSLATE_QUEUE,
+    enqueueBatchPoll,
+    enqueueNovel,
+    getBoss,
+    type BatchPollJob,
+    type DecidedJob,
+    type TranslateJob,
+} from "@/server/queue";
 import { runSync } from "@/server/storage/sync";
 import { instanceConfig, telegramToken } from "@/server/instance";
 import { combine, type Notifier } from "./notify";
@@ -101,6 +114,9 @@ async function main() {
     await boss.work(SYNC_ALL_QUEUE, async () => {
         await runSync(db);
     });
+    await boss.work<BatchPollJob>(BATCH_POLL_QUEUE, async ([job]) => {
+        await pollBatch(db, job.data.batchJobId, notifier);
+    });
     await boss.work<DecidedJob>(DECIDED_QUEUE, async ([job]) => {
         await telegram.decided(job.data);
     });
@@ -111,8 +127,11 @@ async function main() {
     const running = await db
         .select({ id: novel.id })
         .from(novel)
-        .where(and(inArray(novel.status, ["running"]), eq(novel.stopRequested, false)));
+        .where(and(inArray(novel.status, ["running"]), eq(novel.stopRequested, false), eq(novel.pipeline, "classic")));
     for (const n of running) await enqueueNovel(n.id, "worker");
+    // open batches are polled again (a poll lost with the previous worker would leave them hanging)
+    const batches = await db.select({ id: batchJob.id }).from(batchJob).where(inArray(batchJob.status, ["in_progress", "canceling"]));
+    for (const b of batches) await enqueueBatchPoll(b.id, "worker", 5);
 
     const { concurrency } = await instanceConfig(db);
     console.log(`[worker] ready: up to ${concurrency} novels in parallel (${SLOTS} slots here)${running.length ? `, resumed ${running.length}` : ""}`);

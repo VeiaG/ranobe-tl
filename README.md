@@ -10,6 +10,7 @@ Self-hosted web app that translates web novels chapter by chapter with an LLM (O
 - **the model reports new terms**; new ones are added on their own, changes to existing ones wait for you in **Decisions**
 - **two ways to handle those changes**, per novel: keep translating and decide later, or stop that novel until you decide (others keep running) and translate the chapter again with the answer
 - **optional review of new terms** (per novel, opt-in): every new name also lands in Decisions, where you confirm it, fix its translation, type or gender, or remove it as "not a term" so it is never proposed again; can be limited to some types and to the first N chapters
+- **batch mode** (per novel, Anthropic keys): terms are extracted from all chapters first, you settle only the terms the chapters disagree on, then every chapter is translated with the finished glossary through the Message Batches API at half the price
 - **Telegram bot** with buttons for decisions, plus failures and finished runs; long polling, so it works behind NAT
 - **sequels keep their names**: a new novel can start its glossary from another novel or a glossary file (this app's glossary.json, the CLI's meta.json or glossary.db); the last known gender holds from chapter 1, and rejected proposals and "not a term" sources come along. Terms can be added the same way to an existing novel; what it already has is kept
 - **reader** with the original side by side and glossary terms highlighted, hand edits, re-translation of the chapters that use a changed term
@@ -70,6 +71,13 @@ The folders are what matters; for a full copy of everything (accounts, activity 
 **Translate** queues everything not translated yet, failed chapters, or a range (optionally translating done chapters again). **Pause** lets the chapter in flight finish; **Stop now** drops it. After 3 failed chapters in a row (a bad key, a dead endpoint) the run pauses itself.
 
 **Publish to wuji.world** (export menu on the chapters page): sign in with the site's email and password, or paste the `payload-token` cookie for an account made with Google, pick one of the books the account can edit and a range; translated chapters are appended to the book in order. The sign-in is not saved. `WUJI_API_URL` points it at another copy of the site.
+
+**Batch mode** is chosen when the novel is created ("Terms first, then batches"; Anthropic keys only). It does not translate chapter by chapter:
+1. **Extract terms** sends every chapter to the model at once (one Message Batch). Each chapter comes back as a list of terms with a proposed translation, type, gender and a quote; nothing is translated yet.
+2. Terms that every chapter agrees on go into the glossary by themselves, and so do those that match it. The rest wait in **Candidates**: several translations, a gender that changes between chapters, or a value that differs from the glossary. Each shows the variants with how many chapters use them, excerpts from the sources, and **Ask the model**, which reads the excerpts and suggests one entry with a reason (one by one, or for all of them, then "Merge as the model advises").
+3. **Translate** sends the chapters as one batch with the glossary as it is then. The model only translates; it proposes nothing, so there is nothing to decide afterwards. Every part is validated as usual; a rejected part goes out again in a follow-up batch with the reason, until the attempts run out.
+
+Titles and ranks are kept in their base form and put in the holder's gender while translating, so a title held by a woman never becomes a separate entry. Batches cost half the list price (Usage shows them as `<model>:batch`) and usually finish within an hour, at most a day. "Extract terms again" re-reads a range of chapters with the current glossary, e.g. after new chapters were uploaded.
 
 **Glossary rules** (the same as the CLI had):
 - new term → added (spelling variants of an existing term are not)

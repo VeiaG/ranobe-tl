@@ -82,7 +82,8 @@ export async function claimSlot(
                 .select({ n: count() })
                 .from(chapter)
                 .innerJoin(novel, eq(novel.id, chapter.novelId))
-                .where(and(eq(chapter.status, "translating"), eq(novel.status, "running"), ne(chapter.novelId, novelId), where))
+                // chapters of a batch novel wait at the provider, they take no slot here
+                .where(and(eq(chapter.status, "translating"), eq(novel.status, "running"), eq(novel.pipeline, "classic"), ne(chapter.novelId, novelId), where))
                 .then((r) => r[0].n);
         const all = await busy();
         if (all >= concurrency) return { ok: false as const, reason: `waiting for a free slot (${all} of ${concurrency} busy)` };

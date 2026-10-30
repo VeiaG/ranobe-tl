@@ -25,7 +25,8 @@ export function PricesDialog({ prices, models, isAdmin }: { prices: Record<strin
     const [open, setOpen] = useState(false);
     const [pending, start] = useTransition();
     const initial = useMemo(() => {
-        const names = [...new Set([...models, ...Object.keys(prices)])];
+        // "<model>:batch" is priced from its model (half price), it has no row of its own
+        const names = [...new Set([...models.filter((m) => !m.endsWith(":batch")), ...Object.keys(prices)])];
         // used models first, then the rest alphabetically
         names.sort((a, b) => Number(!models.includes(a)) - Number(!models.includes(b)) || a.localeCompare(b));
         return Object.fromEntries(names.map((m) => [m, toDraft(prices[m])])) as Draft;

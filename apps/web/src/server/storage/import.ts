@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
 import { z } from "zod";
-import { DECISION_MODES } from "@/db/schema";
+import { DECISION_MODES, PIPELINES } from "@/db/schema";
 import { TERM_TYPES, normalizeTerm, parseLegacyValue, type Gender, type TermType } from "@ranobe-tl/core";
 import type { DB } from "@/db";
 import { chapter, ignoredTerm, novel, term, termChange, termGender } from "@/db/schema";
@@ -60,6 +60,7 @@ const CliConfig = z
                 title: z.string().optional(),
                 originalTitle: z.string().optional(),
                 decisionMode: z.enum(DECISION_MODES).optional(),
+                pipeline: z.enum(PIPELINES).optional(),
                 askNew: z.object({ types: z.array(z.enum(TERM_TYPES)).optional(), untilChapter: z.number().optional() }).nullable().optional(),
             })
             .optional(),
@@ -265,6 +266,7 @@ export async function importNovelFolder(
                 model: config.model ?? "",
                 providerKeyId: opts.providerKeyId ?? null,
                 decisionMode: config.ranobeTl?.decisionMode ?? "queue",
+                pipeline: config.ranobeTl?.pipeline ?? "classic",
                 askNew: config.ranobeTl?.askNew ?? null,
                 settings,
                 createdBy: opts.createdBy ?? null,
