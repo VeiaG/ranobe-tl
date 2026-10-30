@@ -29,13 +29,16 @@ export async function startExtraction(novelId: number, scope: ExtractScope) {
     });
 }
 
-/** Sends chapters to translation (one batch) with the glossary as it is now. */
-export async function startBatchTranslation(novelId: number, scope: RunScope) {
+/**
+ * Sends chapters to translation with the glossary as it is now: as one batch (half the price, within hours),
+ * or `direct`ly with ordinary requests (full price, within minutes; for a few chapters).
+ */
+export async function startBatchTranslation(novelId: number, scope: RunScope, direct = false) {
     return action(async () => {
         await requireUser();
-        const res = await submitTranslation(db, novelId, scopeWhere(scope));
+        const res = await submitTranslation(db, novelId, scopeWhere(scope), { direct });
         refresh(novelId);
-        return { ok: true as const, message: `${res.chapters} chapters sent to translation${res.skipped ? `, ${res.skipped} skipped` : ""}` };
+        return { ok: true as const, message: `${res.chapters} chapters sent to translation${direct ? " right away" : ""}${res.skipped ? `, ${res.skipped} skipped` : ""}` };
     });
 }
 

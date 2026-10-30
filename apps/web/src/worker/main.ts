@@ -2,10 +2,12 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { runMigrations } from "@/db/migrate";
 import { batchJob, novel } from "@/db/schema";
+import { translateDirect } from "@/server/batch/direct";
 import { failInterrupted, pollBatch } from "@/server/batch/ingest";
 import {
     BATCH_POLL_QUEUE,
     DECIDED_QUEUE,
+    DIRECT_QUEUE,
     SYNC_ALL_QUEUE,
     SYNC_NOVEL_QUEUE,
     TRANSLATE_QUEUE,
@@ -14,6 +16,7 @@ import {
     getBoss,
     type BatchPollJob,
     type DecidedJob,
+    type DirectJob,
     type TranslateJob,
 } from "@/server/queue";
 import { runSync } from "@/server/storage/sync";
@@ -27,6 +30,8 @@ import { createTelegram, type Telegram } from "./telegram";
  * Settings → Instance (and per API key) and checked for every chapter, so it changes without a restart.
  */
 const SLOTS = Math.max(1, Number(process.env.WORKER_SLOTS ?? 8));
+/** Chapters of batch novels translated right away at the same time (see translateDirect). */
+const DIRECT_PARALLEL = Math.max(1, Number(process.env.DIRECT_PARALLEL ?? 4));
 /** How long a novel waits before trying again when every slot is busy. */
 const DEFER_SECONDS = 15;
 /** How often the worker checks whether the bot token was changed in the UI. */
@@ -122,6 +127,10 @@ async function main() {
             console.error(`[batch] poll of batch ${job.data.batchJobId} failed, trying again later:`, error);
             await enqueueBatchPoll(job.data.batchJobId, "worker");
         }
+    });
+    // chapters of batch novels translated right away; a few at a time, the key's rate limit is shared
+    await boss.work<DirectJob>(DIRECT_QUEUE, { localConcurrency: DIRECT_PARALLEL }, async ([job]) => {
+        await translateDirect(db, job.data.chapterId, notifier);
     });
     await boss.work<DecidedJob>(DECIDED_QUEUE, async ([job]) => {
         await telegram.decided(job.data);

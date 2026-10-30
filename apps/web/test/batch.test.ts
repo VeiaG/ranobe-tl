@@ -15,12 +15,15 @@ let novelId = 0;
 let keyId = 0;
 const chapterIds = new Map<number, number>();
 
-type Params = { messages: { content: string }[]; system: { text: string }[] };
+type Params = { messages: { content: string | { text: string }[] }[]; system: { text: string }[] };
+/** Requests sent without a batch (POST /v1/messages). */
+const direct: Params[] = [];
 const batches = new Map<string, { custom_id: string; params: Params }[]>();
 const sent: { custom_id: string; params: Params }[] = [];
 
 function respond(customId: string, params: Params): string {
-    const prompt = params.messages[0].content;
+    const content = params.messages[0].content;
+    const prompt = typeof content === "string" ? content : content.map((p) => p.text).join("");
     const source = prompt.match(/<source>\n([\s\S]*)\n<\/source>/)![1];
     if (customId.startsWith("e-")) {
         const terms = [{ source: "Saintess", target: "Свята", type: "rank", gender: "f", note: "a title" }];
@@ -90,6 +93,22 @@ before(async () => {
             }
             const one = url.match(/^\/v1\/messages\/batches\/([^/]+)$/);
             if (one) return res.end(JSON.stringify(batchObject(one[1], true, port)));
+            if (req.method === "POST" && url === "/v1/messages") {
+                const params = JSON.parse(body);
+                direct.push(params);
+                return res.end(
+                    JSON.stringify({
+                        id: "msg_direct",
+                        type: "message",
+                        role: "assistant",
+                        model: params.model,
+                        content: [{ type: "text", text: respond("t-direct", params) }],
+                        stop_reason: "end_turn",
+                        stop_sequence: null,
+                        usage: { input_tokens: 800, output_tokens: 300, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+                    })
+                );
+            }
             res.statusCode = 404;
             res.end(JSON.stringify({ type: "error", error: { type: "not_found_error", message: url } }));
         });
@@ -200,7 +219,7 @@ test("batch: translation with the glossary, a rejected chunk goes out again", { 
     const res = await submitTranslation(db, novelId, undefined);
     assert.deepEqual(res, { chapters: 3, skipped: 0 });
     const first = sent.find((r) => r.custom_id === `t-${chapterIds.get(1)}-0-1`)!;
-    assert.match(first.params.messages[0].content, /Zhao Yun → Чжао Юнь \[person, m, the hero\]/);
+    assert.match(String(first.params.messages[0].content), /Zhao Yun → Чжао Юнь \[person, m, the hero\]/);
     assert.match(first.params.system[0].text, /put them in the gender of the person who holds them/);
     assert.doesNotMatch(first.params.system[0].text, /<terms>/);
 
@@ -217,7 +236,7 @@ test("batch: translation with the glossary, a rejected chunk goes out again", { 
     const retry = await lastJob();
     assert.equal(retry.requests, 1);
     const again = sent.find((r) => r.custom_id === `t-${chapterIds.get(2)}-0-2`)!;
-    assert.match(again.params.messages[0].content, /IMPORTANT: your previous attempt was rejected: too much untranslated/);
+    assert.match(String(again.params.messages[0].content), /IMPORTANT: your previous attempt was rejected: too much untranslated/);
 
     await pollBatch(db, retry.id, silent);
     const done = await ch(2);
@@ -256,4 +275,30 @@ test("batch: results being applied are not applied twice; left over at start, th
     assert.match(ch.error, /worker stopped while applying/);
     const [n] = await db.select().from(schema.novel).where(eq(schema.novel.id, novelId));
     assert.equal(n.status, "error");
+});
+
+test("batch: a few chapters are translated right away, without a batch", { skip: !enabled }, async () => {
+    const { submitTranslation } = await import("@/server/batch/submit");
+    const { translateDirect } = await import("@/server/batch/direct");
+    const { inArray } = await import("drizzle-orm");
+    await db.update(schema.novel).set({ status: "idle" }).where(eq(schema.novel.id, novelId));
+    const jobsBefore = (await db.select().from(schema.batchJob).where(eq(schema.batchJob.novelId, novelId))).length;
+
+    // chapter 2: the first attempt comes back in English, the second is fine
+    const res = await submitTranslation(db, novelId, and(eq(schema.chapter.novelId, novelId), inArray(schema.chapter.index, [2])), { direct: true });
+    assert.deepEqual(res, { chapters: 1, skipped: 0 });
+    assert.equal((await db.select().from(schema.batchJob).where(eq(schema.batchJob.novelId, novelId))).length, jobsBefore, "no batch");
+    const [running] = await db.select().from(schema.novel).where(eq(schema.novel.id, novelId));
+    assert.equal(running.status, "running");
+
+    await translateDirect(db, chapterIds.get(2)!, silent);
+    const [ch] = await db.select().from(schema.chapter).where(eq(schema.chapter.id, chapterIds.get(2)!));
+    assert.equal(ch.status, "done");
+    assert.equal(ch.attempts, 2);
+    assert.equal(direct.length, 2);
+    assert.match(JSON.stringify(direct[1].messages), /IMPORTANT: your previous attempt was rejected/);
+    const usage = await db.select().from(schema.usageRecord).where(and(eq(schema.usageRecord.novelId, novelId), eq(schema.usageRecord.model, "claude-haiku-5-5")));
+    assert.deepEqual(usage.map((u) => u.ok), [false, true], "full-price requests, the rejected one marked");
+    const [n] = await db.select().from(schema.novel).where(eq(schema.novel.id, novelId));
+    assert.equal(n.status, "idle");
 });

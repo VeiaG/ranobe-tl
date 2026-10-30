@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { ChevronDown, FileSearch, ListRestart, Loader2, Play, Square, TriangleAlert } from "lucide-react";
+import { ChevronDown, FileSearch, ListRestart, Loader2, Play, Square, TriangleAlert, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,8 @@ export function BatchControls({ novelId, counts, hasKey, extracted, candidates }
     const [pending, start] = useTransition();
     const [translateOpen, setTranslateOpen] = useState(false);
     const [rangeOpen, setRangeOpen] = useState(false);
+    // translate with ordinary requests instead of a batch: full price, minutes instead of hours
+    const [direct, setDirect] = useState(false);
     const notExtracted = counts.total - extracted;
 
     const run = (fn: () => Promise<{ ok: boolean; error?: string; message?: string }>, after?: () => void) =>
@@ -49,7 +52,7 @@ export function BatchControls({ novelId, counts, hasKey, extracted, candidates }
         return (
             <Button variant="outline" disabled={pending} onClick={() => run(() => cancelBatches(novelId))}>
                 {pending ? <Loader2 className="animate-spin" /> : <Square />}
-                Cancel the batch
+                Cancel
             </Button>
         );
     }
@@ -91,12 +94,22 @@ export function BatchControls({ novelId, counts, hasKey, extracted, candidates }
                         </DropdownMenuItem>
                         {counts.failed > 0 && (
                             <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => run(() => startBatchTranslation(novelId, { kind: "failed" }))}>
-                                    <ListRestart />
-                                    Retry {counts.failed} failed
-                                </DropdownMenuItem>
-                            </>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => run(() => startBatchTranslation(novelId, { kind: "failed" }, true))}>
+                                        <Zap />
+                                        <div>
+                                            <div>Retry {counts.failed} failed right away</div>
+                                            <div className="text-xs text-muted-foreground">Full price, done in minutes</div>
+                                        </div>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => run(() => startBatchTranslation(novelId, { kind: "failed" }))}>
+                                        <ListRestart />
+                                        <div>
+                                            <div>Retry {counts.failed} failed in a batch</div>
+                                            <div className="text-xs text-muted-foreground">Half the price, within hours</div>
+                                        </div>
+                                    </DropdownMenuItem>
+                    </>
                         )}
                     </DropdownMenuContent>
                 </DropdownMenu>
@@ -109,25 +122,36 @@ export function BatchControls({ novelId, counts, hasKey, extracted, candidates }
                 pending={pending}
                 description="All chapters go out as one batch at half the price; the results usually come back within an hour. The glossary is used as it is now."
                 note={
-                    (candidates > 0 || notExtracted > 0) && (
-                        <div className="flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/8 px-3 py-2.5 text-sm">
-                            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-[color-mix(in_oklch,var(--warning)_70%,var(--foreground))]" />
-                            <div>
-                                {candidates > 0 && (
-                                    <div>
-                                        {formatNumber(candidates)} {candidates === 1 ? "term waits" : "terms wait"} in{" "}
-                                        <Link href={`/novels/${novelId}/candidates`} className="text-brand hover:underline" onClick={() => setTranslateOpen(false)}>
-                                            Candidates
-                                        </Link>
-                                        : chapters that use them are translated without a glossary entry.
-                                    </div>
-                                )}
-                                {notExtracted > 0 && <div>Terms of {formatNumber(notExtracted)} chapters are not extracted yet.</div>}
+                    <>
+                        <label className="flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm">
+                            <Checkbox className="mt-0.5" checked={direct} onCheckedChange={(v) => setDirect(v === true)} />
+                            <span>
+                                <span className="block font-medium">Right away, without a batch</span>
+                                <span className="block text-xs text-muted-foreground">
+                                    Ordinary requests, a few chapters at a time: done in minutes, but at the full price (the estimate below is the batch price). Worth it for a handful of chapters.
+                                </span>
+                            </span>
+                        </label>
+                        {(candidates > 0 || notExtracted > 0) && (
+                            <div className="flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/8 px-3 py-2.5 text-sm">
+                                <TriangleAlert className="mt-0.5 size-4 shrink-0 text-[color-mix(in_oklch,var(--warning)_70%,var(--foreground))]" />
+                                <div>
+                                    {candidates > 0 && (
+                                        <div>
+                                            {formatNumber(candidates)} {candidates === 1 ? "term waits" : "terms wait"} in{" "}
+                                            <Link href={`/novels/${novelId}/candidates`} className="text-brand hover:underline" onClick={() => setTranslateOpen(false)}>
+                                                Candidates
+                                            </Link>
+                                            : chapters that use them are translated without a glossary entry.
+                                        </div>
+                                    )}
+                                    {notExtracted > 0 && <div>Terms of {formatNumber(notExtracted)} chapters are not extracted yet.</div>}
+                                </div>
                             </div>
-                        </div>
-                    )
+                        )}
+                    </>
                 }
-                onStart={(scope) => run(() => startBatchTranslation(novelId, scope), () => setTranslateOpen(false))}
+                onStart={(scope) => run(() => startBatchTranslation(novelId, scope, direct), () => setTranslateOpen(false))}
             />
             <ExtractRangeDialog
                 open={rangeOpen}
