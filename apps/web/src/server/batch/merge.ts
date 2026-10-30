@@ -10,6 +10,7 @@ import {
     majorityType,
     resolveCandidates,
     variantsOf,
+    wellFormed,
     type Candidate,
     type Gender,
     type Term,
@@ -269,9 +270,10 @@ export async function groupSnippets(db: DB, novelId: number, key: string): Promi
         const end = Math.min(s.source.length, at + word.length + SNIPPET_CHARS);
         out.push({
             chapter: s.index,
-            before: (start > 0 ? "…" : "") + s.source.slice(start, at).replace(/\s+/g, " "),
+            // a cut can split an emoji: the half left over would make the "Ask the model" request invalid JSON
+            before: wellFormed((start > 0 ? "…" : "") + s.source.slice(start, at).replace(/\s+/g, " ")),
             match: word,
-            after: s.source.slice(at + word.length, end).replace(/\s+/g, " ") + (end < s.source.length ? "…" : ""),
+            after: wellFormed(s.source.slice(at + word.length, end).replace(/\s+/g, " ") + (end < s.source.length ? "…" : "")),
             target: cand.target,
         });
     }
@@ -303,7 +305,7 @@ Several chapters proposed different entries for one term. Choose the one entry t
 - Titles and ranks are type "rank" and have no gender: give the base (masculine or neutral) form; the translator puts it in the holder's gender. A title held by a woman is not a reason for a feminine entry.
 - For a person, a gender that changes between chapters is usually a mistake of one chapter; choose the gender the excerpts support.${config.instructions ? `\n\nNotes from the user about this novel:\n${config.instructions}` : ""}`;
 
-    const prompt = [
+    const lines = [
         `Term: ${group.source}`,
         group.existing ? `In the glossary now: ${group.existing.target} [${group.existing.type}${group.existing.gender ? `, ${group.existing.gender}` : ""}]` : "Not in the glossary yet.",
         `Proposed translations: ${group.variants.map((v) => `${v.target} (${v.count}× in chapters ${v.chapters.slice(0, 8).join(", ")}${v.chapters.length > 8 ? ", …" : ""})`).join("; ")}`,
@@ -316,6 +318,7 @@ Several chapters proposed different entries for one term. Choose the one entry t
     ]
         .filter((l) => l !== "")
         .join("\n");
+    const prompt = wellFormed(lines);
 
     const record = (usage: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number } | undefined, ok: boolean) =>
         db.insert(usageRecord).values({
@@ -331,7 +334,7 @@ Several chapters proposed different entries for one term. Choose the one entry t
         });
     let advice: TermAdvice;
     try {
-        const res = await generateText({ model: setup.model, system, prompt, providerOptions: setup.providerOptions, output: Output.object({ schema: AdviceSchema }) });
+        const res = await generateText({ model: setup.model, system: wellFormed(system), prompt, providerOptions: setup.providerOptions, output: Output.object({ schema: AdviceSchema }) });
         await record(res.usage, true);
         advice = { ...res.output, gender: res.output.type === "person" ? res.output.gender : "unknown" };
     } catch (error) {

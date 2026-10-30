@@ -9,6 +9,7 @@ export * from "./pipeline/preprocess";
 export * from "./pipeline/parse";
 export * from "./pipeline/prompt";
 export * from "./pipeline/language";
+export * from "./pipeline/text";
 export * from "./pipeline/validate";
 export * from "./pipeline/translator";
 export * from "./batch/prompts";

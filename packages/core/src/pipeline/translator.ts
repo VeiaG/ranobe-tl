@@ -6,6 +6,7 @@ import { parseOutput } from "./parse";
 import { systemPrompt, userPrompt } from "./prompt";
 import { validateTranslation } from "./validate";
 import type { ModelSetup } from "../providers";
+import { wellFormed } from "./text";
 
 export interface Usage {
     input: number;
@@ -80,7 +81,7 @@ export class Translator {
         private glossary: Glossary,
         private opts: TranslatorOptions = {}
     ) {
-        this.system = systemPrompt(config);
+        this.system = wellFormed(systemPrompt(config));
     }
 
     async translateChapter(index: number, rawSource: string, draft?: ChapterDraft): Promise<ChapterResult> {
@@ -159,7 +160,7 @@ export class Translator {
 
         for (let attempt = 1; attempt <= this.config.maxAttempts; attempt++) {
             const terms = this.glossary.relevant(text);
-            const prompt = userPrompt({ text, terms, chapter, chunk, totalChunks, previousContext, feedback });
+            const prompt = wellFormed(userPrompt({ text, terms, chapter, chunk, totalChunks, previousContext, feedback }));
 
             let output: string;
             let usage: Usage = { input: 0, cachedInput: 0, output: 0 };
