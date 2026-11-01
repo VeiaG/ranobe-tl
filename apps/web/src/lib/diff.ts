@@ -62,14 +62,22 @@ export function diffWords(before: string, after: string): Segment[] {
         if (last?.kind === kind) last.text += text;
         else out.push({ kind, text });
     }
+    // mostly rewritten: word changes woven together read worse than the old line and the new one
+    const same = out.reduce((n, s) => n + (s.kind === "same" ? s.text.replace(/\s/g, "").length : 0), 0);
+    const longer = Math.max(before.replace(/\s/g, "").length, after.replace(/\s/g, "").length);
+    if (longer && same / longer < 0.4) return [...(before ? [{ kind: "del" as const, text: before }] : []), ...(after ? [{ kind: "add" as const, text: after }] : [])];
     return out;
 }
 
 export interface Hunk {
-    /** Line number (0-based, in the old text) of the first line of the hunk. */
-    line: number;
+    /** Paragraph number (1-based, counting non-empty lines of the old text) where the hunk starts. */
+    paragraph: number;
+    /** The unchanged paragraph just before the change, for context. */
+    before?: string;
     /** A changed line as word segments; a removed or added line is one segment. */
     lines: Segment[][];
+    /** The unchanged paragraph just after the change. */
+    after?: string;
 }
 
 /** The changed lines of a text; a removed line next to an added one is shown as one line with word changes. */
@@ -78,23 +86,33 @@ export function diffText(before: string, after: string, maxHunks = 30): { hunks:
     const b = after.split("\n");
     const ops = align(a, b);
     const hunks: Hunk[] = [];
-    let line = 0;
+    // the unchanged non-empty line next to position i of ops, looking in one direction
+    const neighbour = (i: number, step: 1 | -1): string | undefined => {
+        for (let k = i; k >= 0 && k < ops.length; k += step) {
+            if (ops[k][0] !== "same") return undefined;
+            const t = a[ops[k][1]];
+            if (t.trim()) return t;
+        }
+        return undefined;
+    };
+    let paragraph = 1;
     let i = 0;
     let total = 0;
     while (i < ops.length) {
         if (ops[i][0] === "same") {
-            line++;
+            if (a[ops[i][1]].trim()) paragraph++;
             i++;
             continue;
         }
+        const first = i;
         const dels: string[] = [];
         const adds: string[] = [];
-        const at = line;
+        const at = paragraph;
         while (i < ops.length && ops[i][0] !== "same") {
             const [kind, k] = ops[i];
             if (kind === "del") {
                 dels.push(a[k]);
-                line++;
+                if (a[k].trim()) paragraph++;
             } else adds.push(b[k]);
             i++;
         }
@@ -105,9 +123,23 @@ export function diffText(before: string, after: string, maxHunks = 30): { hunks:
         for (let p = 0; p < pairs; p++) lines.push(diffWords(dels[p], adds[p]));
         for (const d of dels.slice(pairs)) if (d.trim()) lines.push([{ kind: "del", text: d }]);
         for (const x of adds.slice(pairs)) if (x.trim()) lines.push([{ kind: "add", text: x }]);
-        if (lines.length) hunks.push({ line: at, lines });
+        if (lines.length) hunks.push({ paragraph: at, before: neighbour(first - 1, -1), lines, after: neighbour(i, 1) });
     }
     return { hunks, more: Math.max(0, total - maxHunks) };
+}
+
+/** Words removed and added in a set of changed lines. */
+export function wordStats(lines: Segment[][]): { removed: number; added: number } {
+    let removed = 0;
+    let added = 0;
+    for (const l of lines) {
+        for (const s of l) {
+            const n = s.text.split(/\s+/).filter(Boolean).length;
+            if (s.kind === "del") removed += n;
+            else if (s.kind === "add") added += n;
+        }
+    }
+    return { removed, added };
 }
 
 /** Long unchanged runs inside a line are cut to their ends, so a hunk shows the change and a little around it. */

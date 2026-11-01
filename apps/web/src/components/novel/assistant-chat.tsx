@@ -3,23 +3,19 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { toast } from "sonner";
-import { ArrowUp, BookOpenText, Brain, Check, Database, FileDiff, FileSearch, Loader2, MessagesSquare, PencilLine, Search, Square, Undo2, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { ArrowUp, BookOpenText, Brain, Database, FileDiff, FileSearch, MessagesSquare, PencilLine, Search, Square, Undo2 } from "lucide-react";
 import { Streamdown } from "streamdown";
 import type { AssistantMessage } from "@/app/api/novels/[id]/assistant/route";
 import { EmptyState } from "@/components/page-header";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
 import { Message, MessageContent } from "@/components/ui/message";
 import { MessageScroller, MessageScrollerButton, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport } from "@/components/ui/message-scroller";
 import { Trace, TraceCollapsible, TraceCollapsibleContent, TraceCollapsibleTrigger, TraceIcon, TraceLine, TraceTitle } from "@/components/ui/trace";
-import { cn, plural } from "@/lib/utils";
-import { applyDraftChanges, discardDraftChanges, getDraftChanges } from "@/server/actions/assistant";
-import type { DraftChange } from "@/server/assistant-draft";
-import type { Segment } from "@/lib/diff";
+import { plural } from "@/lib/utils";
+import { DraftReview } from "./draft-review";
 
 type Part = AssistantMessage["parts"][number];
 type ToolPart = Extract<Part, { toolCallId: string }>;
@@ -104,7 +100,7 @@ export function AssistantChat({ novelId, initialTask }: { novelId: number; initi
                 </MessageScroller>
             </MessageScrollerProvider>
 
-            {review && !busy && <DraftReview novelId={novelId} chatId={chatId} onClose={() => setReview(false)} onDone={reviewed} />}
+            <DraftReview novelId={novelId} chatId={chatId} open={review && !busy} onOpenChange={setReview} onDone={reviewed} />
             {notes.length > 0 && <p className="text-xs text-muted-foreground">{notes.join(" ")} The assistant learns it with your next message.</p>}
 
             <form ref={form} onSubmit={send}>
@@ -123,7 +119,7 @@ export function AssistantChat({ novelId, initialTask }: { novelId: number; initi
                     />
                     <InputGroupAddon align="block-end">
                         <span className="text-xs text-muted-foreground">Enter sends, Shift+Enter adds a line</span>
-                        {messages.length > 0 && !review && (
+                        {messages.length > 0 && (
                             <InputGroupButton type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setReview(true)}>
                                 <FileDiff />
                                 Review the draft
@@ -308,145 +304,5 @@ function ToolLine({ part: p, streaming }: { part: ToolPart; streaming: boolean }
                 </TraceCollapsibleContent>
             </TraceCollapsible>
         </Trace>
-    );
-}
-
-function Segments({ segments }: { segments: Segment[] }) {
-    return (
-        <>
-            {segments.map((s, i) =>
-                s.kind === "same" ? (
-                    <span key={i}>{s.text}</span>
-                ) : (
-                    <span key={i} className={cn("rounded-sm", s.kind === "del" ? "bg-destructive/15 text-destructive line-through" : "bg-success/15 text-success")}>
-                        {s.text}
-                    </span>
-                )
-            )}
-        </>
-    );
-}
-
-/** The draft against the chapters: pick chapters, apply them or put them back. */
-function DraftReview(props: { novelId: number; chatId: string; onClose: () => void; onDone: (note: string, applied: boolean) => void }) {
-    const { novelId, chatId } = props;
-    const [data, setData] = useState<{ changes: DraftChange[]; total: number } | null>(null);
-    const [selected, setSelected] = useState<Set<number>>(new Set());
-    const [pending, start] = useTransition();
-
-    const load = useCallback(
-        () =>
-            start(async () => {
-                const res = await getDraftChanges(novelId, chatId);
-                if (!res.ok) return void toast.error(res.error);
-                setData(res.data!);
-                // chapters changed meanwhile are not picked: applying them would overwrite that change
-                setSelected(new Set(res.data!.changes.filter((c) => !c.conflict).map((c) => c.chapter)));
-            }),
-        [novelId, chatId]
-    );
-    useEffect(load, [load]);
-
-    const picked = [...selected].sort((a, b) => a - b);
-    const list = (xs: number[]) => (xs.length > 12 ? `${xs.slice(0, 12).join(", ")} and ${xs.length - 12} more` : xs.join(", "));
-
-    function apply() {
-        start(async () => {
-            const res = await applyDraftChanges(novelId, chatId, picked);
-            if (!res.ok) return void toast.error(res.error);
-            const { applied, skipped } = res.data!;
-            toast.success(`${plural(applied.length, "chapter")} saved`);
-            props.onDone(
-                `[I applied chapters ${list(applied) || "none"}.${skipped.length ? ` Not applied: ${skipped.map((s) => `${s.chapter} (${s.reason})`).join(", ")}.` : ""}]`,
-                applied.length > 0
-            );
-            load();
-        });
-    }
-
-    function discard() {
-        start(async () => {
-            const res = await discardDraftChanges(novelId, chatId, picked);
-            if (!res.ok) return void toast.error(res.error);
-            props.onDone(`[I discarded the changes in chapters ${list(picked)}.]`, false);
-            load();
-        });
-    }
-
-    const changes = data?.changes ?? [];
-    return (
-        <div className="grid max-h-[60%] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-2 rounded-xl border p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                    <FileDiff className="size-4 text-brand" />
-                    {data ? (data.total ? `${plural(data.total, "chapter")} changed in the draft` : "The draft has no changes") : "Loading the draft…"}
-                    {data && data.total > changes.length && <span className="text-xs font-normal text-muted-foreground">(the first {changes.length} shown)</span>}
-                </div>
-                <div className="flex items-center gap-2">
-                    {changes.length > 0 && (
-                        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Checkbox
-                                checked={selected.size === changes.length}
-                                indeterminate={selected.size > 0 && selected.size < changes.length}
-                                onCheckedChange={(v) => setSelected(v === true ? new Set(changes.map((c) => c.chapter)) : new Set())}
-                            />
-                            All
-                        </label>
-                    )}
-                    <Button size="icon-xs" variant="ghost" aria-label="Close" onClick={props.onClose}>
-                        <X />
-                    </Button>
-                </div>
-            </div>
-            <ul className="grid content-start gap-1.5 overflow-y-auto">
-                {changes.map((c) => (
-                    <li key={c.chapter} className="grid gap-1 rounded-lg border px-3 py-2 text-xs">
-                        <label className="flex items-center gap-2">
-                            <Checkbox
-                                checked={selected.has(c.chapter)}
-                                onCheckedChange={(v) =>
-                                    setSelected((s) => {
-                                        const next = new Set(s);
-                                        if (v === true) next.add(c.chapter);
-                                        else next.delete(c.chapter);
-                                        return next;
-                                    })
-                                }
-                            />
-                            <span className="font-medium tabular-nums">Chapter {c.chapter}</span>
-                            {c.conflict && <span className="text-destructive">changed since the draft was made: applying is refused</span>}
-                        </label>
-                        {c.title && (
-                            <p className="break-words">
-                                <span className="text-muted-foreground">Title: </span>
-                                <Segments segments={c.title.segments} />
-                            </p>
-                        )}
-                        {c.hunks.map((h, i) => (
-                            <div key={i} className="grid gap-0.5 border-l-2 pl-2">
-                                {h.lines.map((l, j) => (
-                                    <p key={j} className="break-words">
-                                        <Segments segments={l} />
-                                    </p>
-                                ))}
-                            </div>
-                        ))}
-                        {c.moreHunks > 0 && <p className="text-muted-foreground">and {plural(c.moreHunks, "more change")}</p>}
-                    </li>
-                ))}
-            </ul>
-            {changes.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                    <Button size="sm" onClick={apply} disabled={pending || !picked.length}>
-                        {pending ? <Loader2 className="animate-spin" /> : <Check />}
-                        Apply {plural(picked.length, "chapter")}
-                    </Button>
-                    <Button size="sm" variant="outline" disabled={pending || !picked.length} onClick={discard}>
-                        <Undo2 />
-                        Discard {plural(picked.length, "chapter")}
-                    </Button>
-                </div>
-            )}
-        </div>
     );
 }
