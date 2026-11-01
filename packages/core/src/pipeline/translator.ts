@@ -141,12 +141,16 @@ export class Translator {
             }
             attempts += result.attempts;
             if (!result.ok) {
-                const rejected: RejectedTranslation | undefined = result.rejected && {
-                    sources: chunks.slice(0, c + 1),
-                    parts: [...parts, result.rejected.translation],
-                    title: c === 0 ? result.rejected.title : title,
-                    problems: { [c]: result.reason },
-                };
+                // the parts translated before this one are kept even when nothing usable came back for it
+                const rejected: RejectedTranslation | undefined =
+                    result.rejected || parts.length
+                        ? {
+                              sources: chunks.slice(0, c + 1),
+                              parts: [...parts, result.rejected?.translation ?? null],
+                              title: c === 0 ? result.rejected?.title : title,
+                              problems: { [c]: result.reason },
+                          }
+                        : undefined;
                 return { status: "failed", attempts, reason: `chunk ${c + 1}/${chunks.length}: ${result.reason}`, usage: usage(), rejected };
             }
             if (c === 0) title = result.title;

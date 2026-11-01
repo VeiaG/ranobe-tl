@@ -48,10 +48,22 @@ export async function saveTranslation(novelId: number, index: number, input: { t
             .from(chapter)
             .where(and(eq(chapter.novelId, novelId), eq(chapter.index, index)));
         if (!current) throw new Error("Chapter not found");
+        if (current.status === "translating") throw new Error("The chapter is being translated right now; wait for it or reset it first");
+        if (!input.content.trim()) throw new Error("The translation is empty");
         await keepVersion(db, current, "edit");
         await db
             .update(chapter)
-            .set({ title: input.title.trim(), content: input.content.replace(/\r\n/g, "\n").trim(), status: "done", error: "", translatedAt: new Date(), model: "edited by hand" })
+            .set({
+                title: input.title.trim(),
+                content: input.content.replace(/\r\n/g, "\n").trim(),
+                status: "done",
+                error: "",
+                translatedAt: new Date(),
+                model: "edited by hand",
+                rejected: null,
+                draft: null,
+                batchState: null,
+            })
             .where(and(eq(chapter.novelId, novelId), eq(chapter.index, index)));
         revalidatePath(`/novels/${novelId}`, "layout");
         await requestSync(novelId);

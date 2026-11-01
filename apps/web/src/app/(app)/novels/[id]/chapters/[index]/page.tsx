@@ -1,10 +1,11 @@
 import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
 import { notFound } from "next/navigation";
-import { Glossary, genderAt } from "@ranobe-tl/core";
+import { Glossary, chunkText, cleanSource, genderAt } from "@ranobe-tl/core";
 import { Reader } from "@/components/novel/reader";
 import { db } from "@/db";
 import { chapter, chapterVersion, exchange } from "@/db/schema";
 import { PgGlossaryStore } from "@/server/glossary-store";
+import { novelConfig } from "@/server/novel-config";
 import { getNovel } from "@/server/queries";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string; index: string }> }) {
@@ -44,6 +45,20 @@ export default async function ChapterPage({ params }: { params: Promise<{ id: st
         .filter((t) => t.id > 0)
         .map((t) => ({ id: t.id, source: t.source, target: t.target, type: t.type, note: t.note, locked: t.locked, gender: t.type === "person" ? (genderAt(t, index) ?? null) : null }));
 
+    // a chapter without a translation is written by hand from what there is: the parts the model gave, the source for the rest
+    let handStart: { title: string; content: string; untranslated: number[] } | null = null;
+    if (!c.content) {
+        const config = novelConfig(novel, null);
+        const chunks = chunkText(cleanSource(c.source, config), config.chunkSize);
+        const r = c.rejected;
+        const parts = chunks.map((chunk, i) => (r && r.sources[i] === chunk ? (r.parts[i] ?? null) : null));
+        handStart = {
+            title: r?.title?.trim() || "",
+            content: chunks.map((chunk, i) => parts[i] ?? chunk).join("\n\n"),
+            untranslated: parts.flatMap((p, i) => (p === null ? [i + 1] : [])),
+        };
+    }
+
     return (
         <Reader
             novelId={id}
@@ -64,6 +79,7 @@ export default async function ChapterPage({ params }: { params: Promise<{ id: st
                 translatedAt: c.translatedAt?.toISOString() ?? null,
                 rejected: c.rejected ? { parts: c.rejected.parts, title: c.rejected.title, problems: c.rejected.problems } : null,
             }}
+            handStart={handStart}
             batch={novel.pipeline === "batch"}
             prev={prev?.index ?? null}
             next={next?.index ?? null}

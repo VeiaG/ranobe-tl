@@ -74,6 +74,14 @@ interface ReaderChapter {
 
 type Mode = "translation" | "parallel" | "source";
 
+/** Where writing a translation by hand starts: the parts the model gave, the source for the rest. */
+export interface HandStart {
+    title: string;
+    content: string;
+    /** Parts (1-based) still in the source language. */
+    untranslated: number[];
+}
+
 const NAME_TYPES = new Set(["person", "place", "organization"]);
 
 function paragraphs(text: string): string[] {
@@ -154,9 +162,12 @@ export function Reader({
     exchanges,
     versions,
     batch,
+    handStart,
 }: {
     /** A batch novel: "Translate again" goes right away, without a batch. */
     batch?: boolean;
+    /** For a chapter without a translation: what the hand editor starts from. */
+    handStart?: HandStart | null;
     novelId: number;
     novelTitle: string;
     chapter: ReaderChapter;
@@ -168,6 +179,11 @@ export function Reader({
 }) {
     const router = useRouter();
     const [mode, setMode] = useState<Mode>(c.content ? "translation" : "source");
+    // a translation that appears (written by hand, or the run finished) is shown at once
+    const hasContent = !!c.content;
+    useEffect(() => {
+        if (hasContent) setMode((m) => (m === "source" ? "translation" : m));
+    }, [hasContent]);
     const [size, setSize] = useState(17);
     const [editing, setEditing] = useState(false);
     const [showLog, setShowLog] = useState(false);
@@ -273,10 +289,10 @@ export function Reader({
                         <Plus />
                     </Button>
                     <HistoryDialog novelId={novelId} index={c.index} current={{ title: c.title, content: c.content }} versions={versions} />
-                    {c.content && (
+                    {(c.content || handStart) && c.status !== "translating" && c.status !== "queued" && (
                         <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
                             <Pencil />
-                            <span className="hidden sm:inline">Edit</span>
+                            <span className="hidden sm:inline">{c.content ? "Edit" : "Translate by hand"}</span>
                         </Button>
                     )}
                     <Button variant="outline" size="sm" disabled={pending || c.status === "queued" || c.status === "translating"} onClick={retranslate}>
@@ -311,12 +327,20 @@ export function Reader({
                         <div>
                             <div className="font-medium text-destructive">{c.status === "failed" ? "The translation failed" : "Skipped"}</div>
                             <div className="mt-0.5 text-muted-foreground">{c.error}</div>
-                            {c.status === "failed" && c.rejected && (
-                                <Button variant="outline" size="sm" className="mt-2.5" onClick={() => setShowRejected(true)}>
-                                    <ThumbsUp />
-                                    Look at what the model gave
-                                </Button>
-                            )}
+                            <div className="mt-2.5 flex flex-wrap gap-2">
+                                {c.status === "failed" && c.rejected && (
+                                    <Button variant="outline" size="sm" onClick={() => setShowRejected(true)}>
+                                        <ThumbsUp />
+                                        Look at what the model gave
+                                    </Button>
+                                )}
+                                {!c.content && handStart && (
+                                    <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                                        <Pencil />
+                                        Translate by hand
+                                    </Button>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}
@@ -378,7 +402,7 @@ export function Reader({
             </nav>
 
             {c.rejected && <RejectedDialog open={showRejected} onOpenChange={setShowRejected} novelId={novelId} index={c.index} rejected={c.rejected} />}
-            <EditDialog open={editing} onOpenChange={setEditing} novelId={novelId} chapter={c} />
+            <EditDialog open={editing} onOpenChange={setEditing} novelId={novelId} chapter={c} handStart={c.content ? null : (handStart ?? null)} />
             <Dialog open={showLog} onOpenChange={setShowLog}>
                 <DialogContent className="sm:max-w-4xl">
                     <DialogHeader>
@@ -405,32 +429,68 @@ export function Reader({
     );
 }
 
-function EditDialog({ open, onOpenChange, novelId, chapter }: { open: boolean; onOpenChange: (v: boolean) => void; novelId: number; chapter: ReaderChapter }) {
+function EditDialog({
+    open,
+    onOpenChange,
+    novelId,
+    chapter,
+    handStart,
+}: {
+    open: boolean;
+    onOpenChange: (v: boolean) => void;
+    novelId: number;
+    chapter: ReaderChapter;
+    handStart: HandStart | null;
+}) {
     const router = useRouter();
-    const [title, setTitle] = useState(chapter.title ?? "");
-    const [content, setContent] = useState(chapter.content ?? "");
+    const startTitle = handStart ? handStart.title : (chapter.title ?? "");
+    const startContent = handStart ? handStart.content : (chapter.content ?? "");
+    const [title, setTitle] = useState(startTitle);
+    const [content, setContent] = useState(startContent);
+    const [showSource, setShowSource] = useState(!!handStart);
     const [pending, start] = useTransition();
     useEffect(() => {
         if (open) {
-            setTitle(chapter.title ?? "");
-            setContent(chapter.content ?? "");
+            setTitle(startTitle);
+            setContent(startContent);
         }
-    }, [open, chapter.title, chapter.content]);
+    }, [open, startTitle, startContent]);
+    const untranslated = handStart?.untranslated ?? [];
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-3xl">
+            <DialogContent className={cn("sm:max-w-3xl", showSource && "sm:max-w-6xl")}>
                 <DialogHeader>
-                    <DialogTitle>Edit translation</DialogTitle>
-                    <DialogDescription>Paragraphs are separated by an empty line. A new translation of the chapter replaces your edits.</DialogDescription>
+                    <DialogTitle>{handStart ? "Translate by hand" : "Edit translation"}</DialogTitle>
+                    <DialogDescription>
+                        {handStart
+                            ? untranslated.length
+                                ? `Paragraphs are separated by an empty line. ${
+                                      untranslated.length === 1 ? `Part ${untranslated[0]} is` : `Parts ${untranslated.join(", ")} are`
+                                  } still the source text: replace it with the translation, the rest is what the model gave. Saving marks the chapter translated.`
+                                : "What the model gave, to fix and save. Saving marks the chapter translated."
+                            : "Paragraphs are separated by an empty line. A new translation of the chapter replaces your edits."}
+                    </DialogDescription>
                 </DialogHeader>
-                <Input value={title} onChange={(e) => setTitle(e.target.value)} className="font-serif text-base" />
-                <Textarea value={content} onChange={(e) => setContent(e.target.value)} className="h-[55vh] font-serif text-[15px] leading-relaxed [field-sizing:fixed]" />
+                <div className="flex items-center gap-2">
+                    <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Translated title" className="font-serif text-base" />
+                    <Button variant={showSource ? "secondary" : "outline"} size="sm" onClick={() => setShowSource((v) => !v)}>
+                        Source
+                    </Button>
+                </div>
+                <div className={cn("grid gap-3", showSource && "md:grid-cols-2")}>
+                    {showSource && (
+                        <div className="scrollbar-thin h-[55vh] overflow-y-auto rounded-md border bg-muted/40 p-3 font-serif text-[15px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
+                            {chapter.source}
+                        </div>
+                    )}
+                    <Textarea value={content} onChange={(e) => setContent(e.target.value)} className="h-[55vh] font-serif text-[15px] leading-relaxed [field-sizing:fixed]" />
+                </div>
                 <DialogFooter>
                     <Button variant="ghost" onClick={() => onOpenChange(false)}>
                         Cancel
                     </Button>
                     <Button
-                        disabled={pending}
+                        disabled={pending || !content.trim() || !title.trim()}
                         onClick={() =>
                             start(async () => {
                                 const res = await saveTranslation(novelId, chapter.index, { title, content });
