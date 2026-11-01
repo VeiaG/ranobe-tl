@@ -189,7 +189,8 @@ export async function applyEdits(db: DB, novelId: number, edits: Edit[]): Promis
         }
         if (!changed) continue;
         await keepVersion(db, c, "assistant");
-        await db.update(chapter).set({ title, content }).where(eq(chapter.id, c.id));
+        // a line taken out at the start (a title moved into the title field) leaves no blank lines behind
+        await db.update(chapter).set({ title: title.trim(), content: content.trim() }).where(eq(chapter.id, c.id));
     }
     return result;
 }

@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db, type DB } from "@/db";
 import { novel } from "@/db/schema";
 import { ProposeInput, ReadInput, SearchInput, previewEdits, readChapter, search } from "@/server/assistant";
+import { SQL_TABLE, SqlInput, runSql } from "@/server/assistant-sql";
 import { helperModel } from "@/server/service-model";
 import { getSession } from "@/server/session";
 
@@ -20,6 +21,11 @@ function makeTools(database: DB, novelId: number) {
             description: "Searches the original (source) chapters, e.g. to learn which chapters mention a name and so must contain its translation.",
             inputSchema: SearchInput,
             execute: (input) => search(database, novelId, "source", input),
+        }),
+        sql_query: tool({
+            description: `Runs one read-only SQLite SELECT over a copy of this novel's chapters, to find chapters by any condition at once (untranslated titles, Latin text, missing lines, comparing title and source). Table: ${SQL_TABLE}. At most 300 rows come back, long values are cut.`,
+            inputSchema: SqlInput,
+            execute: (input) => runSql(database, novelId, input),
         }),
         read_chapter: tool({
             description: "Reads part of a chapter's translation or source.",
@@ -42,6 +48,7 @@ const system = (n: { title: string; sourceLanguage: string; targetLanguage: stri
 
 How to work:
 - Search before you propose. A name appears in many grammatical forms (cases, number, adjective forms) and in older variants; search by stems with a regex (unicode mode, e.g. "Тяньлан\\p{L}*") and look at the "forms" of the result to see every spelling. search_sources tells which chapters mention the original name, so you can look for chapters where the translation went its own way.
+- sql_query finds chapters by conditions a text search cannot express, all at once: titles still in ${n.sourceLanguage} (e.g. WHERE latin_share(title) > 0.5), titles equal to the source's first line, a translated title left as the first line of the text, chapters missing a name the source has. Prefer one good query over many searches, then propose edits for every chapter it found. A translated title that opens the text moves with two edits: the title (find the whole current title) and the text (find that first line, replace with nothing).
 - Edits are literal: "find" must be the exact current text (copy it from a search hit's "match" or from the chapter), "replace" is the new text in the right grammatical form for that sentence. Include neighbouring words in "find" when the form depends on them or when a bare word would hit unrelated places, and fix agreement of nearby words (adjectives, verbs, pronouns) if the new term has another gender or number.
 - Only change what the user asked for; leave everything else exactly as it is.
 - Propose in batches of at most 100 edits, grouped sensibly. After calling propose_edits stop and wait: the user confirms or rejects each edit, and the next message tells you what was applied. Then continue with the next batch, or say you are done.
