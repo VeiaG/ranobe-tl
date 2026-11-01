@@ -2,7 +2,7 @@ import { generateText } from "ai";
 import type { TranslationConfig } from "../config";
 import type { Glossary, PendingOutcome, ProposalOutcome } from "../glossary/glossary";
 import { checkSource, chunkText, cleanSource } from "./preprocess";
-import { parseOutput } from "./parse";
+import { chapterTitle, parseOutput } from "./parse";
 import { systemPrompt, userPrompt } from "./prompt";
 import { validateTranslation } from "./validate";
 import type { ModelSetup } from "../providers";
@@ -154,9 +154,11 @@ export class Translator {
             translatedLength += result.translation.length;
         }
 
+        const head = chapterTitle(chunks[0], title, parts[0]);
+        parts[0] = head.content;
         return {
             status: "done",
-            title: title?.trim() || source.split("\n")[0].trim(),
+            title: head.title,
             content: parts.join("\n\n"),
             attempts,
             ratio: translatedLength / source.length,

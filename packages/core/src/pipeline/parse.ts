@@ -64,3 +64,38 @@ export function parseOutput(raw: string): ParsedOutput {
         problems,
     };
 }
+
+const lines = (text: string) => text.split("\n").map((l) => l.trim()).filter(Boolean);
+const digits = (text: string) => (text.match(/\d+/g) ?? []).join(" ");
+
+/**
+ * The translated title when the model put it at the start of <translation> instead of a <title> block:
+ * the first line of the translation, if it stands for the first line of the source (the title). It must carry
+ * the same numbers ("Chapter 12"), be not much longer than the title, and the translation must have as many
+ * lines as the source with its title.
+ */
+export function leadingTitle(source: string, translation: string): { title: string; content: string } | undefined {
+    const src = lines(source);
+    const out = lines(translation);
+    if (src.length < 2 || out.length < 2) return undefined;
+    const head = src[0];
+    const first = out[0];
+    if (digits(first) !== digits(head)) return undefined;
+    // translations run longer or shorter than the source as a whole (CJK sources are much shorter)
+    const ratio = translation.length / Math.max(1, source.length);
+    if (first.length > Math.min(300, head.length * ratio * 2.5 + 20)) return undefined;
+    // the title is one of the source lines: without it the translation would have a line less.
+    // Unsure (a model merged two lines) means no: better a title left in the text than a paragraph lost.
+    if (out.length < src.length) return undefined;
+    const content = translation.trim().slice(translation.trim().indexOf(first) + first.length).trim();
+    return content ? { title: first, content } : undefined;
+}
+
+/**
+ * Title and text of a translated chapter. Without a translated title the source's first line stands in,
+ * unless the model left the translated title at the start of the text: then it is taken from there.
+ */
+export function chapterTitle(source: string, title: string | undefined, content: string): { title: string; content: string } {
+    if (title?.trim()) return { title: title.trim(), content };
+    return leadingTitle(source, content) ?? { title: lines(source)[0] ?? "", content };
+}

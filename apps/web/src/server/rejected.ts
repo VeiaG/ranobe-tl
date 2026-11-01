@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { chunkText, cleanSource } from "@ranobe-tl/core";
+import { chapterTitle, chunkText, cleanSource } from "@ranobe-tl/core";
 import type { DB } from "@/db";
 import { chapter, novel, providerKey, type BatchChapterState } from "@/db/schema";
 import { logEvent } from "./activity";
@@ -28,13 +28,15 @@ export async function acceptRejected(db: DB, novelId: number, index: number): Pr
     const complete = r.parts.length === chunks.length && r.parts.every((p) => p !== null);
 
     if (complete) {
-        const parts = r.parts as string[];
+        const parts = [...(r.parts as string[])];
+        const head = chapterTitle(chunks[0], r.title, parts[0]);
+        parts[0] = head.content;
         await keepVersion(db, ch, "translation");
         await db
             .update(chapter)
             .set({
                 status: "done",
-                title: r.title?.trim() || chunks[0].split("\n")[0].trim(),
+                title: head.title,
                 content: parts.join("\n\n"),
                 ratio: parts.reduce((a, p) => a + p.length, 0) / chunks.reduce((a, s) => a + s.length, 0),
                 error: "",

@@ -2,8 +2,10 @@
 
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { cleanSource, leadingTitle } from "@ranobe-tl/core";
 import { db } from "@/db";
-import { chapter, chapterVersion, novel } from "@/db/schema";
+import { chapter, chapterVersion, novel, providerKey } from "@/db/schema";
+import { novelConfig } from "@/server/novel-config";
 import { requestSync } from "@/server/queue";
 import { acceptRejected } from "@/server/rejected";
 import { keepVersion } from "@/server/versions";
@@ -90,5 +92,38 @@ export async function acceptRejectedTranslation(novelId: number, index: number) 
         const res = await acceptRejected(db, novelId, index);
         revalidatePath(`/novels/${novelId}`, "layout");
         return { ok: true as const, data: res, message: res.done ? "Taken as it is" : "Taken; the rest of the chapter is being translated" };
+    });
+}
+
+/**
+ * Chapters whose title stayed in the source language while the translated title opened the text
+ * (the model left out the <title> block): the first line of the text becomes the title.
+ */
+export async function fixLeadingTitles(novelId: number) {
+    return action(async () => {
+        await requireUser();
+        const [n] = await db.select().from(novel).where(eq(novel.id, novelId));
+        if (!n) throw new Error("Novel not found");
+        const [key] = n.providerKeyId ? await db.select().from(providerKey).where(eq(providerKey.id, n.providerKeyId)) : [];
+        const config = novelConfig(n, key);
+        const rows = await db
+            .select()
+            .from(chapter)
+            .where(and(eq(chapter.novelId, novelId), eq(chapter.status, "done")));
+        let fixed = 0;
+        for (const c of rows) {
+            if (!c.content || !c.title) continue;
+            const source = cleanSource(c.source, config);
+            const sourceTitle = source.split("\n").find((l) => l.trim())?.trim();
+            if (c.title.trim() !== sourceTitle) continue;
+            const head = leadingTitle(source, c.content);
+            if (!head) continue;
+            await keepVersion(db, c, "edit");
+            await db.update(chapter).set({ title: head.title, content: head.content }).where(eq(chapter.id, c.id));
+            fixed++;
+        }
+        revalidatePath(`/novels/${novelId}`, "layout");
+        if (fixed) await requestSync(novelId);
+        return { ok: true as const, message: fixed ? `Titles fixed in ${fixed} chapters` : "No chapter with the title left in the text" };
     });
 }

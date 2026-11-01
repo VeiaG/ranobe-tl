@@ -25,7 +25,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ChapterStatus } from "@/db/schema";
 import { cn, formatNumber, formatTokens, timeAgo } from "@/lib/utils";
-import { deleteChapters, resetChapters } from "@/server/actions/chapters";
+import { deleteChapters, fixLeadingTitles, resetChapters } from "@/server/actions/chapters";
 import { startRun } from "@/server/actions/run";
 import { useLive } from "./live";
 import { UploadDialog } from "./upload-dialog";
@@ -160,6 +160,10 @@ export function ChaptersTable(props: {
                             <DropdownMenuItem render={<a href={`/api/novels/${novelId}/export?format=folder`} />}>Novel folder with glossary (.zip)</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={() => setWuji(true)}>Publish to wuji.world…</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem disabled={pending} onClick={() => act(() => fixLeadingTitles(novelId))}>
+                                Fix untranslated titles
+                            </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                     <WujiDialog novelId={novelId} open={wuji} onOpenChange={setWuji} />

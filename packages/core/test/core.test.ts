@@ -5,7 +5,7 @@ import { importLegacy, parseLegacyValue } from "../src/glossary/importLegacy";
 import { TermMatcher } from "../src/glossary/match";
 import { MemoryGlossaryStore, genderAt } from "../src/glossary/store";
 import { chunkText, cleanSource, dedupeTitle } from "../src/pipeline/preprocess";
-import { parseOutput } from "../src/pipeline/parse";
+import { chapterTitle, leadingTitle, parseOutput } from "../src/pipeline/parse";
 import { validateTranslation } from "../src/pipeline/validate";
 import type { TranslationConfig as Config } from "../src/config";
 
@@ -232,4 +232,28 @@ test("validation: a line the source repeats is no loop, a few merged paragraphs 
     const paras = (n: number, word: string) => Array.from({ length: n }, (_, i) => `${word} ${i} ${"слово ".repeat(8)}`).join("\n\n");
     assert.deepEqual(validateTranslation(paras(27, "Source"), paras(24, "Абзац"), loose).problems, []);
     assert.match(validateTranslation(paras(27, "Source"), paras(20, "Абзац"), loose).problems.join(), /paragraphs instead of 27/);
+});
+
+test("leadingTitle: a translated title left at the start of the text is taken out", () => {
+    const source = "Chapter 12: The Gate\n\nHe walked to the gate.\n\n\"Open it,\" she said.";
+    const translation = "Розділ 12: Брама\n\nВін підійшов до брами.\n\n— Відчини її, — сказала вона.";
+    assert.deepEqual(leadingTitle(source, translation), {
+        title: "Розділ 12: Брама",
+        content: "Він підійшов до брами.\n\n— Відчини її, — сказала вона.",
+    });
+    assert.deepEqual(chapterTitle(source, undefined, translation).title, "Розділ 12: Брама");
+    // a <title> block wins
+    assert.equal(chapterTitle(source, "Розділ 12. Брама", translation).content, translation);
+});
+
+test("leadingTitle: a text without the title is left alone", () => {
+    const source = "Chapter 12: The Gate\n\nHe walked to the gate.\n\n\"Open it,\" she said.";
+    const body = "Він підійшов до брами.\n\n— Відчини її, — сказала вона.";
+    assert.equal(leadingTitle(source, body), undefined);
+    assert.equal(chapterTitle(source, undefined, body).title, "Chapter 12: The Gate");
+    // numbers must match
+    assert.equal(leadingTitle(source, "Розділ 13: Брама\n\n" + body), undefined);
+    // a short first line that is the story, not the title
+    const s2 = "The Gate\n\n\"Hey!\"\n\nHe walked to the gate and stood there for a long while, thinking.";
+    assert.equal(leadingTitle(s2, "— Гей!\n\nВін підійшов до брами й довго стояв там, думаючи."), undefined);
 });
