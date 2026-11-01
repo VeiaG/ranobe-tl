@@ -1,13 +1,10 @@
 import "server-only";
-import { and, asc, between, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import type { DB } from "@/db";
-import { chapter } from "@/db/schema";
 import { escapeRegExp, makeSnippet } from "@/lib/text-replace";
-import { keepVersion } from "./versions";
+import type { DraftRow } from "./assistant-draft";
 
-// The chat assistant of the Replace tab: searches translations and sources, reads chapters and
-// proposes literal edits that the user confirms before anything is written.
+// The chat assistant of the Replace tab: searches and reads the chapters of its draft (see assistant-draft),
+// so it sees its own changes; nothing reaches the real chapters until the user applies the draft.
 
 const MAX_PATTERN = 300;
 
@@ -38,20 +35,10 @@ function buildSearch(input: z.infer<typeof SearchInput>): RegExp {
     }
 }
 
-/** Searches the translated chapters (titles and text) or the sources. */
-export async function search(db: DB, novelId: number, where: "translation" | "source", input: z.infer<typeof SearchInput>) {
+/** Searches the translated chapters (titles and text) or the sources of the draft. */
+export function search(all: DraftRow[], where: "translation" | "source", input: z.infer<typeof SearchInput>) {
     const regex = buildSearch(input);
-    const rows = await db
-        .select({ index: chapter.index, title: chapter.title, content: chapter.content, source: chapter.source })
-        .from(chapter)
-        .where(
-            and(
-                eq(chapter.novelId, novelId),
-                where === "translation" ? eq(chapter.status, "done") : undefined,
-                input.from !== undefined || input.to !== undefined ? between(chapter.index, input.from ?? 0, input.to ?? 1e9) : undefined
-            )
-        )
-        .orderBy(asc(chapter.index));
+    const rows = where === "translation" ? all.filter((r) => r.status === "done") : all;
 
     const hits: SearchHit[] = [];
     const chapters = new Set<number>();
@@ -86,11 +73,7 @@ export const ReadInput = z.object({
     length: z.number().int().min(100).max(12000).default(4000),
 });
 
-export async function readChapter(db: DB, novelId: number, input: z.infer<typeof ReadInput>) {
-    const [r] = await db
-        .select({ title: chapter.title, sourceTitle: chapter.sourceTitle, content: chapter.content, source: chapter.source, status: chapter.status })
-        .from(chapter)
-        .where(and(eq(chapter.novelId, novelId), eq(chapter.index, input.chapter)));
+export function readChapter(r: DraftRow | undefined, input: z.infer<typeof ReadInput>) {
     if (!r) throw new Error(`There is no chapter ${input.chapter}`);
     const text = input.part === "source" ? r.source : (r.content ?? "");
     return {
@@ -101,96 +84,4 @@ export async function readChapter(db: DB, novelId: number, input: z.infer<typeof
         offset: input.offset,
         text: text.slice(input.offset, input.offset + input.length),
     };
-}
-
-export const Edit = z.object({
-    chapter: z.number().int(),
-    field: z.enum(["title", "text"]).default("text"),
-    find: z.string().min(1).describe("Exact text as it is now in the chapter, copied from a search hit or the chapter text"),
-    replace: z.string().describe("What it becomes; may be empty"),
-});
-export type Edit = z.infer<typeof Edit>;
-
-export const ProposeInput = z.object({
-    summary: z.string().describe("One sentence for the user: what these edits change"),
-    edits: z.array(Edit).min(1).max(100),
-});
-
-export interface EditPreview extends Edit {
-    /** How many times `find` occurs in that field; every occurrence is replaced. */
-    occurrences: number;
-    before: string;
-    after: string;
-    error: string | null;
-}
-
-const count = (text: string, find: string) => (find ? text.split(find).length - 1 : 0);
-
-/** Checks proposed edits against the current text and shows them in context; nothing is written. */
-export async function previewEdits(db: DB, novelId: number, edits: Edit[]): Promise<EditPreview[]> {
-    const rows = await db
-        .select({ index: chapter.index, title: chapter.title, content: chapter.content, status: chapter.status })
-        .from(chapter)
-        .where(and(eq(chapter.novelId, novelId), inArray(chapter.index, [...new Set(edits.map((e) => e.chapter)), -1])));
-    const byIndex = new Map(rows.map((r) => [r.index, r]));
-    return edits.map((e) => {
-        const r = byIndex.get(e.chapter);
-        const empty = { ...e, occurrences: 0, before: "", after: "" };
-        if (!r) return { ...empty, error: `There is no chapter ${e.chapter}` };
-        if (r.status !== "done") return { ...empty, error: `Chapter ${e.chapter} is not translated` };
-        const text = (e.field === "title" ? r.title : r.content) ?? "";
-        const at = text.indexOf(e.find);
-        if (at < 0) return { ...empty, error: "This text is not in the chapter (copy it exactly from a search hit)" };
-        if (e.find === e.replace) return { ...empty, error: "The replacement is the same text" };
-        return {
-            ...e,
-            occurrences: count(text, e.find),
-            before: makeSnippet(text, at, e.find.length, 60),
-            after: makeSnippet(text.slice(0, at) + e.replace + text.slice(at + e.find.length), at, e.replace.length, 60),
-            error: null,
-        };
-    });
-}
-
-export interface ApplyResult {
-    applied: { chapter: number; field: Edit["field"]; find: string; occurrences: number }[];
-    failed: { chapter: number; field: Edit["field"]; find: string; reason: string }[];
-}
-
-/** Writes confirmed edits, in order; each chapter's previous text goes to its history once. */
-export async function applyEdits(db: DB, novelId: number, edits: Edit[]): Promise<ApplyResult> {
-    const result: ApplyResult = { applied: [], failed: [] };
-    const indexes = [...new Set(edits.map((e) => e.chapter))];
-    for (const index of indexes) {
-        const [c] = await db
-            .select()
-            .from(chapter)
-            .where(and(eq(chapter.novelId, novelId), eq(chapter.index, index)));
-        const mine = edits.filter((e) => e.chapter === index);
-        if (!c || c.status !== "done") {
-            for (const e of mine) result.failed.push({ chapter: index, field: e.field, find: e.find, reason: "the chapter is not translated any more" });
-            continue;
-        }
-        let title = c.title ?? "";
-        let content = c.content ?? "";
-        let changed = false;
-        for (const e of mine) {
-            const text = e.field === "title" ? title : content;
-            const n = count(text, e.find);
-            if (!n) {
-                result.failed.push({ chapter: index, field: e.field, find: e.find, reason: "the text changed since the proposal" });
-                continue;
-            }
-            const next = text.split(e.find).join(e.replace);
-            if (e.field === "title") title = next;
-            else content = next;
-            changed = true;
-            result.applied.push({ chapter: index, field: e.field, find: e.find, occurrences: n });
-        }
-        if (!changed) continue;
-        await keepVersion(db, c, "assistant");
-        // a line taken out at the start (a title moved into the title field) leaves no blank lines behind
-        await db.update(chapter).set({ title: title.trim(), content: content.trim() }).where(eq(chapter.id, c.id));
-    }
-    return result;
 }
