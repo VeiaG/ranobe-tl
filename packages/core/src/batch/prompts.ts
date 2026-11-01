@@ -81,12 +81,15 @@ export function batchUserPrompt(opts: {
 }): string {
     const parts: string[] = [];
     parts.push(opts.terms.length ? `<glossary>\n${formatGlossary(opts.terms, opts.chapter)}\n</glossary>` : "<glossary>\n(empty)\n</glossary>");
+    const titleRule = "The first line of <source> is the chapter title: its translation goes into <title> only, and <translation> starts with the line after it.";
     if (opts.totalChunks > 1) {
         parts.push(
             opts.chunk === 0
-                ? `This is part 1 of ${opts.totalChunks} of the chapter. It starts with the chapter title.`
+                ? `This is part 1 of ${opts.totalChunks} of the chapter. ${titleRule}`
                 : `This is part ${opts.chunk + 1} of ${opts.totalChunks} of the chapter, a continuation chunk: there is no title, omit the <title> block.`
         );
+    } else {
+        parts.push(titleRule);
     }
     if (opts.sourceContext) {
         parts.push(`<previous_source>\n…${opts.sourceContext}\n</previous_source>\n(The source text just before this part, for context only. Do not translate it.)`);

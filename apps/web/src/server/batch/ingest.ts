@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
     Glossary,
+    chapterTitle,
     messageText,
     messageUsage,
     parseExtraction,
@@ -189,13 +190,15 @@ export async function completeChapter(
     model: string,
     extra: Partial<Record<"inputTokens" | "cachedTokens" | "outputTokens", unknown>> = {}
 ): Promise<void> {
-    const parts = state.parts as string[];
+    const parts = [...(state.parts as string[])];
+    const head = chapterTitle(state.sources[0], state.title, parts[0]);
+    parts[0] = head.content;
     await keepVersion(db, ch, "translation");
     await db
         .update(chapter)
         .set({
             status: "done",
-            title: state.title?.trim() || state.sources[0].split("\n")[0].trim(),
+            title: head.title,
             content: parts.join("\n\n"),
             attempts: state.attempts.reduce((a, b) => a + b, 0),
             ratio: parts.reduce((a, p) => a + p.length, 0) / state.sources.reduce((a, s) => a + s.length, 0),
