@@ -172,7 +172,8 @@ export async function checkChunk(
  * validation rejected. Undefined when no rejected attempt came back at all.
  */
 export function rejectedOf(state: BatchChapterState): RejectedTranslation | null {
-    if (!state.rejected?.some((r) => r !== null)) return null;
+    // the accepted chunks are worth keeping even when the others never came back
+    if (!state.rejected?.some((r) => r !== null) && !state.parts.some((p) => p !== null)) return null;
     const problems: Record<number, string> = {};
     const parts = state.parts.map((p, c) => {
         if (p !== null) return p;

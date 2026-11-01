@@ -187,7 +187,7 @@ test("translator: a draft from a pause is reused, only the chunks after it are t
     const paragraph = "Zhao Yun walked into the Sky Tower and looked around for a long while. ".repeat(20);
     // three chunks of ~1400 characters
     const source = `Chapter 5\n\n${paragraph}\n\n${paragraph}\n\n${paragraph}`;
-    const config = parseConfig({ chunkSize: 1500 });
+    const config = parseConfig({ chunkSize: 2500 });
     let calls = 0;
     const model = new MockLanguageModelV3({
         doGenerate: async () => {
@@ -237,4 +237,22 @@ test("translator: every request reports its own usage", async () => {
         { attempt: 1, input: 100, failed: false },
         { attempt: 2, input: 100, failed: false },
     ]);
+});
+
+test("translator: the parts translated before a part that never came back are kept", async () => {
+    const para = Array.from({ length: 50 }, (_, i) => `Sentence number ${i} tells its own story.`).join(" ");
+    const source = `Title\n\n${para}\n\n${para}`;
+    const good = Array.from({ length: 50 }, (_, i) => `Речення номер ${i} розповідає свою історію.`).join(" ");
+    const model = new MockLanguageModelV3({
+        doGenerate: async (opts) =>
+            reply(JSON.stringify(opts.prompt).includes("part 1 of 2") ? `<title>Назва</title>\n<translation>\n${good}\n</translation>` : "I cannot translate this."),
+    });
+    const glossary = await Glossary.load(new MemoryGlossaryStore());
+    const res = await new Translator(parseConfig({ maxAttempts: 2, chunkSize: 2500 }), setup(model), glossary).translateChapter(2, source);
+    assert.equal(res.status, "failed");
+    if (res.status !== "failed") return;
+    assert.match(res.reason, /chunk 2\/2: missing <translation>/);
+    assert.deepEqual(res.rejected?.parts, [good, null]);
+    assert.equal(res.rejected?.title, "Назва");
+    assert.equal(res.rejected?.sources.length, 2);
 });
