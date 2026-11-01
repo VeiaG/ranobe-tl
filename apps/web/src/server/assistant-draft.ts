@@ -6,7 +6,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { DB } from "@/db";
 import { chapter } from "@/db/schema";
-import { diffText, diffWords, trimSame, type Hunk, type Segment } from "@/lib/diff";
+import { diffText, diffWords, trimSame, wordStats, type Hunk, type Segment } from "@/lib/diff";
 import { keepVersion } from "./versions";
 
 // The assistant's draft: a copy of the novel's chapters in an SQLite file, one per conversation.
@@ -366,7 +366,12 @@ export async function revertDraft(db: DB, novelId: number, chatId: string, chapt
 
 export interface DraftChange {
     chapter: number;
+    /** The title as it will be (changed or not). */
+    currentTitle: string;
     title: { before: string; after: string; segments: Segment[] } | null;
+    /** Words removed and added, title included (counted over the hunks shown). */
+    removed: number;
+    added: number;
     hunks: Hunk[];
     moreHunks: number;
     /** The chapter changed outside the draft since it was copied: applying would overwrite that. */
@@ -403,11 +408,16 @@ export async function draftChanges(db: DB, novelId: number, chatId: string): Pro
         const l = byIndex.get(r.chapter);
         const conflict = !l || l.status !== "done" || l.title !== r.baseTitle || l.content !== r.baseText;
         const before = { title: r.baseTitle ?? "", text: r.baseText ?? "" };
-        const text = diffText(before.text, r.text, 40);
+        const text = diffText(before.text, r.text, 60);
+        const titleSegments = before.title !== r.title ? diffWords(before.title, r.title) : null;
+        const stats = wordStats([...(titleSegments ? [titleSegments] : []), ...text.hunks.flatMap((h) => h.lines)]);
+        const cut = (t?: string) => (t && t.length > 400 ? `${t.slice(0, 200)} … ${t.slice(-200)}` : t);
         return {
             chapter: r.chapter,
-            title: before.title !== r.title ? { before: before.title, after: r.title, segments: diffWords(before.title, r.title) } : null,
-            hunks: text.hunks.map((h) => ({ ...h, lines: h.lines.map((l) => trimSame(l)) })),
+            currentTitle: r.title,
+            title: titleSegments ? { before: before.title, after: r.title, segments: titleSegments } : null,
+            ...stats,
+            hunks: text.hunks.map((h) => ({ ...h, before: cut(h.before), after: cut(h.after), lines: h.lines.map((l) => trimSame(l, 300)) })),
             moreHunks: text.more,
             conflict,
         };

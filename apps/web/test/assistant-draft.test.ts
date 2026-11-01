@@ -46,7 +46,9 @@ test("diff: words inside a changed line", () => {
     ]);
     const d = diffText("A\n\nB\n\nC", "A\n\nB2\n\nC");
     assert.equal(d.hunks.length, 1);
-    assert.equal(d.hunks[0].line, 2);
+    assert.equal(d.hunks[0].paragraph, 2);
+    assert.equal(d.hunks[0].before, "A");
+    assert.equal(d.hunks[0].after, "C");
 });
 
 test("draft: SQL checks keep the model inside the draft", { skip: !enabled }, () => {
