@@ -29,6 +29,17 @@ function defaultChoice(g: CandidateGroup) {
     return { target: g.existing?.target ?? g.variants[0]?.target ?? "", type: g.type, note: g.notes[0] ?? "", gender };
 }
 
+/** Share (0..1) of the proposals that agree on the most common translation. */
+function topShare(g: CandidateGroup) {
+    const total = g.variants.reduce((n, v) => n + v.count, 0);
+    return total ? (g.variants[0]?.count ?? 0) / total : 0;
+}
+
+/** A group is obvious when at least `threshold`% of its proposals (and at least two) give the same translation; it is merged as that translation. */
+function obviousChoice(g: CandidateGroup) {
+    return { ...defaultChoice(g), target: g.variants[0]?.target ?? "" };
+}
+
 export function CandidatesPanel({ novelId, groups }: { novelId: number; groups: CandidateGroup[] }) {
     const router = useRouter();
     const [query, setQuery] = useState("");
@@ -63,21 +74,32 @@ export function CandidatesPanel({ novelId, groups }: { novelId: number; groups: 
             router.refresh();
         });
 
-    const mergeAdvised = () =>
+    const [threshold, setThreshold] = useState(70);
+    const obvious = visible.filter((g) => !g.existing?.locked && (g.variants[0]?.count ?? 0) >= 2 && topShare(g) * 100 >= threshold);
+    const approvable = visible.filter((g) => !g.existing?.locked);
+
+    const mergeMany = (items: CandidateGroup[], choiceOf: (g: CandidateGroup) => ReturnType<typeof defaultChoice>) =>
         startBulk(async () => {
             const res = await acceptCandidates(
                 novelId,
-                withAdvice.map((g) => ({ key: g.key, choice: defaultChoice(g) }))
+                items.map((g) => ({ key: g.key, choice: choiceOf(g) }))
             );
             if (!res.ok) return void toast.error(res.error);
             const { merged, failed } = res.data!;
             merged.forEach(markDone);
             if (failed.length) {
-                const source = (key: string) => withAdvice.find((g) => g.key === key)?.source ?? key;
+                const source = (key: string) => items.find((g) => g.key === key)?.source ?? key;
                 toast.warning(`${merged.length} merged, ${failed.length} not`, { description: failed.map((f) => `${source(f.key)}: ${f.error}`).join("\n") });
             } else toast.success(res.message ?? "Merged");
             router.refresh();
         });
+
+    const mergeAdvised = () => mergeMany(withAdvice, defaultChoice);
+    const mergeObvious = () => mergeMany(obvious, obviousChoice);
+    const mergeAll = () => {
+        if (!confirm(`Merge all ${approvable.length} terms? Each gets the model's advice, the glossary's or the most common translation.`)) return;
+        mergeMany(approvable, defaultChoice);
+    };
 
     if (!groups.length) {
         return (
@@ -114,6 +136,31 @@ export function CandidatesPanel({ novelId, groups }: { novelId: number; groups: 
                         </Button>
                     )}
                 </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-1">
+                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                    <span>Obvious from</span>
+                    <Input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={threshold}
+                        onChange={(e) => setThreshold(Math.min(100, Math.max(1, Number(e.target.value) || 0)))}
+                        className="h-8 w-16 tabular-nums"
+                        title="Share of the chapters that must agree on one translation"
+                    />
+                    <span>% agree</span>
+                </div>
+                <Button variant="ghost" size="sm" disabled={bulk || !obvious.length} onClick={mergeObvious}>
+                    {bulk ? <Loader2 className="animate-spin" /> : <Check />}
+                    Approve {obvious.length} obvious
+                </Button>
+                {approvable.length > 0 && (
+                    <Button variant="ghost" size="sm" disabled={bulk} onClick={mergeAll}>
+                        {bulk ? <Loader2 className="animate-spin" /> : <CheckCheck />}
+                        Approve all {approvable.length}
+                    </Button>
+                )}
             </div>
             {visible.map((g) => (
                 <CandidateCard key={`${g.key}:${g.advice ? "advised" : ""}`} novelId={novelId} group={g} onDone={() => markDone(g.key)} />
