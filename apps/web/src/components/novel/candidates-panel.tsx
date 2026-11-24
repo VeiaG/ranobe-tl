@@ -29,15 +29,20 @@ function defaultChoice(g: CandidateGroup) {
     return { target: g.existing?.target ?? g.variants[0]?.target ?? "", type: g.type, note: g.notes[0] ?? "", gender };
 }
 
-/** Share (0..1) of the proposals that agree on the most common translation. */
-function topShare(g: CandidateGroup) {
-    const total = g.variants.reduce((n, v) => n + v.count, 0);
-    return total ? (g.variants[0]?.count ?? 0) / total : 0;
-}
+/** The leader needs at least this many chapters before a lead means anything. */
+const OBVIOUS_MIN_CHAPTERS = 3;
 
-/** A group is obvious when at least `threshold`% of its proposals (and at least two) give the same translation; it is merged as that translation. */
-function obviousChoice(g: CandidateGroup) {
-    return { ...defaultChoice(g), target: g.variants[0]?.target ?? "" };
+/**
+ * The translation most chapters agree on, if it clearly leads. Chapters vote, not proposals: one chapter that
+ * spelled a name five ways is one vote for each spelling, so its noise does not drown the leader. And the
+ * leader is compared with the runner-up, not with the total: 40 against 35 is a dispute, 40 against 5 and
+ * a tail of one-offs is not.
+ */
+function obviousLeader(g: CandidateGroup, lead: number) {
+    const [first, second] = [...g.variants].sort((a, b) => b.chapters.length - a.chapters.length || b.count - a.count);
+    if (!first || first.chapters.length < OBVIOUS_MIN_CHAPTERS) return null;
+    if (second && first.chapters.length < second.chapters.length * lead) return null;
+    return first;
 }
 
 export function CandidatesPanel({ novelId, groups }: { novelId: number; groups: CandidateGroup[] }) {
@@ -74,8 +79,11 @@ export function CandidatesPanel({ novelId, groups }: { novelId: number; groups: 
             router.refresh();
         });
 
-    const [threshold, setThreshold] = useState(70);
-    const obvious = visible.filter((g) => !g.existing?.locked && (g.variants[0]?.count ?? 0) >= 2 && topShare(g) * 100 >= threshold);
+    const [lead, setLead] = useState(3);
+    const obvious = visible.flatMap((g) => {
+        const leader = !g.existing?.locked && obviousLeader(g, lead);
+        return leader ? [{ group: g, target: leader.target }] : [];
+    });
     const approvable = visible.filter((g) => !g.existing?.locked);
 
     const mergeMany = (items: CandidateGroup[], choiceOf: (g: CandidateGroup) => ReturnType<typeof defaultChoice>) =>
@@ -95,7 +103,13 @@ export function CandidatesPanel({ novelId, groups }: { novelId: number; groups: 
         });
 
     const mergeAdvised = () => mergeMany(withAdvice, defaultChoice);
-    const mergeObvious = () => mergeMany(obvious, obviousChoice);
+    const mergeObvious = () => {
+        const targets = new Map(obvious.map((o) => [o.group.key, o.target]));
+        mergeMany(
+            obvious.map((o) => o.group),
+            (g) => ({ ...defaultChoice(g), target: targets.get(g.key)! })
+        );
+    };
     const mergeAll = () => {
         if (!confirm(`Merge all ${approvable.length} terms? Each gets the model's advice, the glossary's or the most common translation.`)) return;
         mergeMany(approvable, defaultChoice);
@@ -139,17 +153,18 @@ export function CandidatesPanel({ novelId, groups }: { novelId: number; groups: 
             </div>
             <div className="flex flex-wrap items-center justify-end gap-1">
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                    <span>Obvious from</span>
+                    <span>Obvious when it leads</span>
                     <Input
                         type="number"
                         min={1}
-                        max={100}
-                        value={threshold}
-                        onChange={(e) => setThreshold(Math.min(100, Math.max(1, Number(e.target.value) || 0)))}
+                        max={20}
+                        step={0.5}
+                        value={lead}
+                        onChange={(e) => setLead(Math.min(20, Math.max(1, Number(e.target.value) || 1)))}
                         className="h-8 w-16 tabular-nums"
-                        title="Share of the chapters that must agree on one translation"
+                        title={`The most common translation must be in this many times more chapters than the next one, and in at least ${OBVIOUS_MIN_CHAPTERS}`}
                     />
-                    <span>% agree</span>
+                    <span>× in chapters</span>
                 </div>
                 <Button variant="ghost" size="sm" disabled={bulk || !obvious.length} onClick={mergeObvious}>
                     {bulk ? <Loader2 className="animate-spin" /> : <Check />}
