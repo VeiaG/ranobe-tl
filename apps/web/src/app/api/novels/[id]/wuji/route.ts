@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 const Input = z.object({
     token: z.string().min(1),
-    bookId: z.string().min(1),
+    target: z.object({ kind: z.enum(["book", "request"]), id: z.string().min(1) }),
     from: z.number().int().min(1),
     to: z.number().int().min(1),
 });
@@ -21,7 +21,7 @@ export type WujiProgress =
     | { type: "done"; uploaded: number };
 
 /**
- * Appends translated chapters to a book on wuji.world, one at a time and in order (the site orders
+ * Appends translated chapters to a book (or a book request) on wuji.world, one at a time and in order (the site orders
  * chapters as they are created). Progress comes back as JSON lines; closing the dialog stops it.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -29,7 +29,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const novelId = Number((await params).id);
     const parsed = Input.safeParse(await req.json());
     if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? "Bad request" }, { status: 400 });
-    const { token, bookId } = parsed.data;
+    const { token, target } = parsed.data;
+    // a chapter belongs to exactly one of the two; the site checks it
+    const owner = target.kind === "book" ? { book: target.id } : { bookRequest: target.id };
     const [from, to] = [Math.min(parsed.data.from, parsed.data.to), Math.max(parsed.data.from, parsed.data.to)];
 
     const inRange = and(eq(chapter.novelId, novelId), between(chapter.index, from, to));
@@ -58,7 +60,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
                     await wujiFetch("/bookChapters", {
                         token,
                         method: "POST",
-                        body: { title, book: bookId, content: markdownToLexical(r.content ?? "") },
+                        body: { title, ...owner, content: markdownToLexical(r.content ?? "") },
                         signal: req.signal,
                     });
                 } catch (error) {

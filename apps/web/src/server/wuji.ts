@@ -106,10 +106,13 @@ export async function wujiMe(token: string): Promise<WujiUser> {
     };
 }
 
+/** Where chapters go: a book, or a book request (a draft book an editor collects chapters in until an admin makes the real book). */
+export type WujiTargetKind = "book" | "request";
+
 export interface WujiBook {
+    kind: WujiTargetKind;
     id: string;
     title: string;
-    slug: string;
     chapterCount: number;
     cover: string | null;
 }
@@ -120,7 +123,7 @@ const absolute = (url: string | null | undefined) => (!url ? null : url.startsWi
 export async function wujiBooks(token: string, q: string): Promise<WujiBook[]> {
     const user = await wujiMe(token);
     const params = new URLSearchParams({ limit: "20", depth: "1", sort: "title" });
-    for (const f of ["title", "slug", "chapterCount", "coverImage"]) params.set(`select[${f}]`, "true");
+    for (const f of ["title", "chapterCount", "coverImage"]) params.set(`select[${f}]`, "true");
     let and = 0;
     if (q.trim()) params.set(`where[and][${and++}][title][like]`, q.trim());
     if (!user.roles.includes("admin")) {
@@ -132,10 +135,41 @@ export async function wujiBooks(token: string, q: string): Promise<WujiBook[]> {
     }
     const { docs } = await wujiFetch<{ docs: any[] }>(`/books?${params}`, { token });
     return docs.map((b) => ({
+        kind: "book" as const,
         id: b.id,
         title: b.title,
-        slug: b.slug,
         chapterCount: b.chapterCount ?? 0,
         cover: absolute(typeof b.coverImage === "object" ? (b.coverImage?.sizes?.thumbnail?.url ?? b.coverImage?.url) : null),
     }));
+}
+
+/**
+ * The account's own book requests that still take chapters (not yet moved into a book). Only admins
+ * and editors make requests; a site without the collection yet answers 404, which reads as none.
+ */
+export async function wujiBookRequests(token: string, q: string): Promise<WujiBook[]> {
+    const user = await wujiMe(token);
+    if (!user.roles.some((r) => r === "admin" || r === "editor")) return [];
+    const params = new URLSearchParams({ limit: "20", depth: "0", sort: "-updatedAt" });
+    params.set("select[title]", "true");
+    params.set("select[chapters]", "true");
+    // the chapters join only for its count
+    params.set("joins[chapters][limit]", "1");
+    params.set("joins[chapters][count]", "true");
+    params.set("where[and][0][requestStatus][equals]", "new");
+    params.set("where[and][1][createdBy.value][equals]", user.id);
+    if (q.trim()) params.set("where[and][2][title][like]", q.trim());
+    try {
+        const { docs } = await wujiFetch<{ docs: any[] }>(`/bookRequests?${params}`, { token });
+        return docs.map((r) => ({
+            kind: "request" as const,
+            id: r.id,
+            title: r.title,
+            chapterCount: r.chapters?.totalDocs ?? r.chapters?.docs?.length ?? 0,
+            cover: null,
+        }));
+    } catch (error) {
+        if (error instanceof Error && error.message.startsWith("wuji.world: 404")) return [];
+        throw error;
+    }
 }

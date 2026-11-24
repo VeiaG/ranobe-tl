@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { requireUser } from "@/server/session";
-import { cleanToken, wujiBooks, wujiLogin, wujiMe } from "@/server/wuji";
+import { cleanToken, type WujiTargetKind, wujiBookRequests, wujiBooks, wujiLogin, wujiMe } from "@/server/wuji";
 import { action } from "./util";
 
 const SignIn = z.union([z.object({ token: z.string().trim().min(1, "Paste the token") }), z.object({ email: z.string().trim().min(1, "Enter the email"), password: z.string().min(1, "Enter the password") })]);
@@ -18,9 +18,9 @@ export async function wujiSignIn(input: z.input<typeof SignIn>) {
     });
 }
 
-export async function wujiSearchBooks(token: string, q: string) {
+export async function wujiSearchTargets(token: string, q: string, kind: WujiTargetKind) {
     return action(async () => {
         await requireUser();
-        return wujiBooks(token, q);
+        return kind === "request" ? wujiBookRequests(token, q) : wujiBooks(token, q);
     });
 }

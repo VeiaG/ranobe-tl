@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { BookOpen, Check, Loader2, LogIn, Search, Upload } from "lucide-react";
+import { BookOpen, Check, FilePlus2, Loader2, LogIn, Search, Upload } from "lucide-react";
 import type { WujiProgress } from "@/app/api/novels/[id]/wuji/route";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,8 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn, formatNumber } from "@/lib/utils";
-import { wujiSearchBooks, wujiSignIn } from "@/server/actions/wuji";
-import type { WujiBook } from "@/server/wuji";
+import { wujiSearchTargets, wujiSignIn } from "@/server/actions/wuji";
+import type { WujiBook, WujiTargetKind } from "@/server/wuji";
 
 interface Run {
     total: number;
@@ -32,6 +32,7 @@ export function WujiDialog({ novelId, open, onOpenChange }: { novelId: number; o
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [token, setToken] = useState("");
+    const [kind, setKind] = useState<WujiTargetKind>("book");
     const [q, setQ] = useState("");
     const [books, setBooks] = useState<WujiBook[] | null>(null);
     const [book, setBook] = useState<WujiBook | null>(null);
@@ -52,6 +53,7 @@ export function WujiDialog({ novelId, open, onOpenChange }: { novelId: number; o
             setBook(null);
             setBooks(null);
             setRun(null);
+            setKind("book");
         }
         onOpenChange(v);
     }
@@ -68,13 +70,23 @@ export function WujiDialog({ novelId, open, onOpenChange }: { novelId: number; o
 
     useEffect(() => {
         if (!session) return;
+        let current = true;
         const t = setTimeout(async () => {
-            const res = await wujiSearchBooks(session.token, q);
+            const res = await wujiSearchTargets(session.token, q, kind);
+            if (!current) return;
             if (!res.ok) return void toast.error(res.error);
             setBooks(res.data!);
         }, 300);
-        return () => clearTimeout(t);
-    }, [session, q]);
+        return () => {
+            current = false;
+            clearTimeout(t);
+        };
+    }, [session, q, kind]);
+
+    function switchKind(next: string) {
+        setKind(next as WujiTargetKind);
+        setBooks(null);
+    }
 
     function pick(b: WujiBook) {
         setBook(b);
@@ -93,7 +105,7 @@ export function WujiDialog({ novelId, open, onOpenChange }: { novelId: number; o
             const res = await fetch(`/api/novels/${novelId}/wuji`, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ token: session.token, bookId: book.id, from: Number(from) || 1, to: Number(to) || 1_000_000_000 }),
+                body: JSON.stringify({ token: session.token, target: { kind: book.kind, id: book.id }, from: Number(from) || 1, to: Number(to) || 1_000_000_000 }),
                 signal: controller.signal,
             });
             if (!res.ok || !res.body) throw new Error((await res.json().catch(() => null))?.error ?? "Upload failed");
@@ -133,7 +145,7 @@ export function WujiDialog({ novelId, open, onOpenChange }: { novelId: number; o
                 <DialogHeader>
                     <DialogTitle>Publish to wuji.world</DialogTitle>
                     <DialogDescription>
-                        Translated chapters are added to the end of a book on the site, in order. {session ? `Signed in as ${session.name}.` : "The sign-in is kept only while this dialog is open."}
+                        Translated chapters are added to the end of a book on the site, or of your book request, in order. {session ? `Signed in as ${session.name}.` : "The sign-in is kept only while this dialog is open."}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -161,9 +173,19 @@ export function WujiDialog({ novelId, open, onOpenChange }: { novelId: number; o
                     </Tabs>
                 ) : (
                     <div className="grid gap-3">
+                        <Tabs value={kind} onValueChange={switchKind}>
+                            <TabsList className="w-full">
+                                <TabsTrigger value="book" disabled={uploading}>
+                                    Books
+                                </TabsTrigger>
+                                <TabsTrigger value="request" disabled={uploading}>
+                                    My book requests
+                                </TabsTrigger>
+                            </TabsList>
+                        </Tabs>
                         <div className="relative">
                             <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a book" className="pl-8" disabled={uploading} />
+                            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={kind === "book" ? "Find a book" : "Find a request"} className="pl-8" disabled={uploading} />
                         </div>
                         <ul className="scrollbar-thin max-h-60 overflow-y-auto rounded-lg border py-1">
                             {books === null && (
@@ -171,18 +193,28 @@ export function WujiDialog({ novelId, open, onOpenChange }: { novelId: number; o
                                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
                                 </li>
                             )}
-                            {books?.length === 0 && <li className="px-3 py-6 text-center text-sm text-muted-foreground">No books this account can add chapters to</li>}
+                            {books?.length === 0 && (
+                                <li className="px-3 py-6 text-center text-sm text-muted-foreground">
+                                    {kind === "book" ? "No books this account can add chapters to" : "No open book requests of this account. Create one in the wuji.world admin."}
+                                </li>
+                            )}
                             {books?.map((b) => (
-                                <li key={b.id}>
+                                <li key={`${b.kind}:${b.id}`}>
                                     <button
                                         disabled={uploading}
                                         onClick={() => pick(b)}
-                                        className={cn("flex w-full items-center gap-3 px-3 py-1.5 text-left text-sm hover:bg-muted/50 disabled:pointer-events-none", book?.id === b.id && "bg-muted")}
+                                        className={cn("flex w-full items-center gap-3 px-3 py-1.5 text-left text-sm hover:bg-muted/50 disabled:pointer-events-none", book?.kind === b.kind && book.id === b.id && "bg-muted")}
                                     >
-                                        {b.cover ? <img src={b.cover} alt="" className="h-10 w-7 shrink-0 rounded-sm object-cover" /> : <BookOpen className="size-4 shrink-0 text-muted-foreground" />}
+                                        {b.cover ? (
+                                            <img src={b.cover} alt="" className="h-10 w-7 shrink-0 rounded-sm object-cover" />
+                                        ) : b.kind === "request" ? (
+                                            <FilePlus2 className="size-4 shrink-0 text-muted-foreground" />
+                                        ) : (
+                                            <BookOpen className="size-4 shrink-0 text-muted-foreground" />
+                                        )}
                                         <span className="min-w-0 flex-1 truncate">{b.title}</span>
                                         <span className="text-xs text-muted-foreground tabular-nums">{formatNumber(b.chapterCount)} ch.</span>
-                                        {book?.id === b.id && <Check className="size-4 text-brand" />}
+                                        {book?.kind === b.kind && book.id === b.id && <Check className="size-4 text-brand" />}
                                     </button>
                                 </li>
                             ))}
@@ -198,7 +230,7 @@ export function WujiDialog({ novelId, open, onOpenChange }: { novelId: number; o
                                     <Input id="wuji-to" type="number" min={1} value={to} onChange={(e) => setTo(e.target.value)} placeholder="last" disabled={uploading} />
                                 </div>
                                 <p className="min-w-40 flex-1 pb-2 text-xs text-muted-foreground">
-                                    {formatNumber(book.chapterCount)} chapters on the site; only translated ones are sent.
+                                    {formatNumber(book.chapterCount)} chapters {book.kind === "request" ? "in the request" : "on the site"}; only translated ones are sent.
                                 </p>
                             </div>
                         )}
